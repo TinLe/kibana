@@ -20,6 +20,14 @@ define(function (require) {
           // add some getters to the controller powered by attributes
           paginate.getList = $parse(attrs.list);
           paginate.perPageProp = attrs.perPageProp;
+
+          if (attrs.perPage) {
+            paginate.perPage = attrs.perPage;
+            $scope.showSelector = false;
+          } else {
+            $scope.showSelector = true;
+          }
+
           paginate.otherWidthGetter = $parse(attrs.otherWidth);
 
           paginate.init();
@@ -28,7 +36,7 @@ define(function (require) {
       controllerAs: 'paginate',
       controller: function ($scope) {
         var self = this;
-        var ALL = Infinity;
+        var ALL = 0;
 
         self.sizeOptions = [
           { title: '10', value: 10 },
@@ -39,7 +47,8 @@ define(function (require) {
 
         // setup the watchers, called in the post-link function
         self.init = function () {
-          self.perPage = $scope[self.perPageProp];
+
+          self.perPage = _.parseInt(self.perPage) || $scope[self.perPageProp];
 
           $scope.$watchMulti([
             'paginate.perPage',
@@ -59,7 +68,7 @@ define(function (require) {
               return;
             }
 
-            self.perPage = $scope[self.perPageProp];
+            self.perPage = _.parseInt(self.perPage) || $scope[self.perPageProp];
             if (!self.perPage) {
               self.perPage = ALL;
               return;
@@ -86,14 +95,13 @@ define(function (require) {
           $scope.pages = [];
           if (!$scope.list) return;
 
-          var perPage = self.perPage;
-          var shouldSplit = perPage && isFinite(perPage);
-          var count = shouldSplit ? Math.ceil($scope.list.length / perPage) : 1;
+          var perPage = _.parseInt(self.perPage);
+          var count = perPage ? Math.ceil($scope.list.length / perPage) : 1;
 
           _.times(count, function (i) {
             var page;
 
-            if (isFinite(perPage)) {
+            if (perPage) {
               var start = perPage * i;
               page = $scope.list.slice(start, start + perPage);
             } else {
