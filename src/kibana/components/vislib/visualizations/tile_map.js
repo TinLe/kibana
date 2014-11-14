@@ -64,10 +64,6 @@ define(function (require) {
           div = $(this);
           div.addClass('tilemap');
 
-          if (div.width() < minMapSize || div.height() < minMapSize) {
-            throw new errors.ContainerTooSmall();
-          }
-
           if (self._attr.lastZoom) {
             mapZoom = self._attr.lastZoom;
           }
@@ -128,7 +124,10 @@ define(function (require) {
             }
           });
 
-          map.addControl(new FitControl());
+          if (data && data.geoJSON && data.geoJSON.features.length > 0) {
+            map.addControl(new FitControl());
+          }
+
 
           function fitBounds() {
             map.fitBounds(featureLayer.getBounds());
