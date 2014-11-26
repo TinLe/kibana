@@ -9,11 +9,12 @@ define(function (require) {
       title: 'Terms',
       makeLabel: function (aggConfig) {
         var params = aggConfig.params;
-        return params.order.display + ' ' + params.size + ' ' + params.field.name;
+        return params.order.display + ' ' + params.size + ' ' + params.field.displayName;
       },
       params: [
         {
-          name: 'field'
+          name: 'field',
+          scriptable: true
         },
         {
           name: 'size',
@@ -42,7 +43,7 @@ define(function (require) {
 
             sort[metricAggConfig.id] = order;
 
-            var visNotHierarchical = !aggConfig.vis.type.hierarchicalData;
+            var visNotHierarchical = !aggConfig.vis.isHierarchical();
 
             // if the vis is hierarchical, then the metric will always be copied
             // if it's not, then we need to make sure the number of buckets is 0, else wise copy it
