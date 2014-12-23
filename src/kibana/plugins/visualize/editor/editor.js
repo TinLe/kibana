@@ -34,7 +34,8 @@ define(function (require) {
         .catch(courier.redirectWhenMissing({
           'visualization': '/visualize',
           'search': '/settings/objects/savedVisualizations/' + $route.current.params.id,
-          'index-pattern': '/settings/objects/savedVisualizations/' + $route.current.params.id
+          'index-pattern': '/settings/objects/savedVisualizations/' + $route.current.params.id,
+          'index-pattern-field': '/settings/objects/savedVisualizations/' + $route.current.params.id
         }));
       }
     }
@@ -45,13 +46,16 @@ define(function (require) {
     'kibana/notify',
     'kibana/courier'
   ])
-  .controller('VisEditor', function ($scope, $route, timefilter, AppState, $location, kbnUrl, $timeout, courier, Private) {
+  .controller('VisEditor', function ($scope, $route, timefilter, AppState, $location, kbnUrl, $timeout, courier, Private, Promise) {
 
     var _ = require('lodash');
+    var onlyDisabled = require('components/filter_bar/lib/onlyDisabled');
     var angular = require('angular');
     var ConfigTemplate = require('utils/config_template');
     var Notifier = require('components/notify/_notifier');
     var docTitle = Private(require('components/doc_title/doc_title'));
+    var brushEvent = Private(require('utils/brush_event'));
+    var filterBarClickHandler = Private(require('components/filter_bar/filter_bar_click_handler'));
 
     var notify = new Notifier({
       location: 'Visualization Editor'
@@ -76,15 +80,21 @@ define(function (require) {
     var $state = (function initState() {
       var savedVisState = vis.getState();
       var stateDefaults = {
-        query: searchSource.get('query') || {query_string: {query: '*'}},
+        query: searchSource.getOwn('query') || {query_string: {query: '*'}},
+        filters: searchSource.getOwn('filter') || [],
         vis: savedVisState
       };
 
       var $state = new AppState(stateDefaults);
 
       if (!angular.equals($state.vis, savedVisState)) {
-        vis.setState($state.vis);
-        editableVis.setState($state.vis);
+        Promise.try(function () {
+          vis.setState($state.vis);
+          editableVis.setState($state.vis);
+        })
+        .catch(courier.redirectWhenMissing({
+          'index-pattern-field': '/visualize'
+        }));
       }
 
       return $state;
@@ -97,7 +107,6 @@ define(function (require) {
       $scope.vis = vis;
       $scope.editableVis = editableVis;
       $scope.state = $state;
-
       $scope.conf = _.pick($scope, 'doSave', 'savedVis', 'shareData');
       $scope.configTemplate = configTemplate;
       $scope.toggleShare = _.bindKey(configTemplate, 'toggle', 'share');
@@ -108,11 +117,16 @@ define(function (require) {
       if ($scope.linked) {
         // possibly left over state from unsaved unlinking
         delete $state.query;
+        $state.filters = searchSource.getOwn('filter');
       } else {
         $state.query = $state.query || searchSource.get('query');
         courier.setRootSearchSource(searchSource);
         searchSource.set('query', $state.query);
+        searchSource.set('filter', $state.filters);
       }
+
+      editableVis.listeners.click = vis.listeners.click = filterBarClickHandler($state);
+      editableVis.listeners.brush = vis.listeners.brush = brushEvent;
 
       // track state of editable vis vs. "actual" vis
       $scope.stageEditableVis = transferVisState(editableVis, vis, true);
@@ -123,8 +137,15 @@ define(function (require) {
         editableVis.dirty = !angular.equals(newState, vis.getState());
       }, true);
 
+      $state.replace();
+
       $scope.$watch('searchSource.get("index").timeFieldName', function (timeField) {
         timefilter.enabled = !!timeField;
+      });
+
+      $scope.$watch('state.filters', function (newFilters, oldFilters) {
+        if (onlyDisabled(newFilters, oldFilters)) return;
+        if (newFilters !== oldFilters) $scope.fetch();
       });
 
       $scope.$listen($state, 'fetch_with_changes', function (keys) {
@@ -136,10 +157,16 @@ define(function (require) {
         }
 
         // we use state to track query, must write before we fetch
-        if ($state.query) {
+        if ($state.query && !$scope.linked) {
           searchSource.set('query', $state.query);
         } else {
           searchSource.set('query', null);
+        }
+
+        if ($state.filters && $state.filters.length) {
+          searchSource.set('filter', $state.filters);
+        } else {
+          searchSource.set('filter', []);
         }
 
         $scope.fetch();
@@ -159,9 +186,11 @@ define(function (require) {
 
     $scope.fetch = function () {
       $state.save();
+      searchSource.set('filter', $state.filters);
       if (!$scope.linked) searchSource.set('query', $state.query);
       searchSource.fetch();
     };
+
 
     $scope.startOver = function () {
       kbnUrl.change('/visualize', {});
@@ -197,17 +226,17 @@ define(function (require) {
 
       // display unlinking for 2 seconds, unless it is double clicked
       $scope.unlinking = $timeout($scope.doneUnlinking, 2000);
+
       delete savedVis.savedSearchId;
-      var q = searchSource.get('query');
-      $state.query = q;
+      parent.set('filter', _.union(searchSource.getOwn('filter'), parent.getOwn('filter')));
 
-      var searchState = parent.toJSON();
-
-      // copy over all state except "aggs"
-      _(searchState).omit('aggs').forOwn(function (val, key) {
+      // copy over all state except "aggs" and filter, which is already copied
+      _(parent.toJSON()).omit('aggs').forOwn(function (val, key) {
         searchSource.set(key, val);
       });
 
+      $state.query = searchSource.get('query');
+      $state.filters = searchSource.get('filter');
       searchSource.inherits(parentsParent);
     };
 

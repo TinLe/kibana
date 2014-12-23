@@ -2,7 +2,6 @@ define(function (require) {
   return function HistogramVisType(Private) {
     var VislibVisType = Private(require('plugins/vis_types/vislib/_vislib_vis_type'));
     var Schemas = Private(require('plugins/vis_types/_schemas'));
-    var PieConverter = Private(require('plugins/vis_types/vislib/converters/pie'));
 
     return new VislibVisType({
       name: 'pie',
@@ -13,10 +12,11 @@ define(function (require) {
           shareYAxis: true,
           addTooltip: true,
           addLegend: true,
+          isDonut: false
         },
-        editor: require('text!plugins/vis_types/vislib/editors/basic.html')
+        editor: require('text!plugins/vis_types/vislib/editors/pie.html')
       },
-      responseConverter: PieConverter,
+      responseConverter: false,
       hierarchicalData: true,
       schemas: new Schemas([
         {

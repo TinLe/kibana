@@ -3,6 +3,8 @@ define(function (require) {
   var moment = require('moment');
   var errors = require('errors');
 
+  require('directives/validate_index_name');
+
   require('routes')
   .when('/settings/indices/', {
     template: require('text!plugins/settings/sections/indices/_create.html')
@@ -17,21 +19,20 @@ define(function (require) {
 
     // this and child scopes will write pattern vars here
     var index = $scope.index = {
-      // set in updateDefaultForPatternType()
-      name: null,
-      defaultName: null,
+      name: 'logstash-*',
 
       isTimeBased: true,
       nameIsPattern: false,
       sampleCount: 5,
-      nameIntervalOptions: intervals
+      nameIntervalOptions: intervals,
+
+      fetchFieldsError: 'Loading'
     };
 
     index.nameInterval = _.find(index.nameIntervalOptions, { name: 'daily' });
     index.timeField = null;
 
     var updateSamples = function () {
-      updateDefaultForPatternType();
       index.samples = null;
       index.existing = null;
       index.patternErrors = [];
@@ -40,18 +41,12 @@ define(function (require) {
         return;
       }
 
-      // replace anything that is outside of brackets with a *
-      var wildcard = indexPatterns.patternToWildcard(index.name);
-      es.indices.getAliases({
-        index: wildcard
-      })
-      .then(function (resp) {
-        var all = Object.keys(resp);
-        var matches = all.filter(function (existingIndex) {
-          var parsed = moment(existingIndex, index.name);
-          return existingIndex === parsed.format(index.name);
-        });
+      var pattern = mockIndexPattern(index);
 
+      indexPatterns.mapper.getIndicesForIndexPattern(pattern)
+      .then(function (existing) {
+        var all = existing.all;
+        var matches = existing.matches;
         if (all.length) {
           index.existing = {
             class: all.length === matches.length ? 'success' : 'warning',
@@ -76,7 +71,7 @@ define(function (require) {
       .catch(notify.error);
     };
 
-    $scope.refreshFieldList = _.debounce(function () {
+    $scope.refreshFieldList = function () {
       index.dateFields = index.timeField = index.listUsed = null;
       var useIndexList = index.isTimeBased && index.nameIsPattern;
 
@@ -93,19 +88,7 @@ define(function (require) {
 
       return indexPatterns.mapper.clearCache(index.name)
       .then(function () {
-        // trick the mapper into thinking this is an indexPattern
-        var pattern = {
-          id: index.name,
-          nameInterval: index.nameInterval,
-          toIndexList: function (to, from) {
-            if (!index.nameInterval) {
-              index.listUsed = index.name;
-            } else {
-              index.listUsed = intervals.toIndexList(index.name, index.nameInterval, to, from);
-            }
-            return index.listUsed;
-          }
-        };
+        var pattern = mockIndexPattern(index);
 
         return indexPatterns.mapper.getFieldsForIndexPattern(pattern, true)
         .catch(function (err) {
@@ -126,7 +109,7 @@ define(function (require) {
           });
         }
       }, notify.fatal);
-    }, 50);
+    };
 
     $scope.createIndexPattern = function () {
       // get an empty indexPattern to start
@@ -163,21 +146,59 @@ define(function (require) {
       });
     };
 
-    var updateDefaultForPatternType = function () {
-      var newDefault = index.nameIsPattern
-        ? '[logstash-]YYYY.MM.DD'
-        : 'logstash-*';
 
-      if (index.name === index.defaultName) {
-        index.name = index.defaultName = newDefault;
-      } else {
-        index.defaultName = newDefault;
+    $scope.$watchMulti([
+      'index.isTimeBased',
+      'index.nameIsPattern',
+      'index.nameInterval.name'
+    ], function (newVal, oldVal) {
+
+      function getPatternDefault(interval) {
+        switch (interval) {
+        case 'hours':
+          return '[logstash-]YYYY.MM.DD.HH';
+        case 'days':
+          return '[logstash-]YYYY.MM.DD';
+        case 'weeks':
+          return '[logstash-]GGGG.WW';
+        case 'months':
+          return '[logstash-]YYYY.MM';
+        case 'years':
+          return '[logstash-]YYYY';
+        default:
+          return 'logstash-*';
+        }
       }
 
-      if (!index.nameIsPattern) {
+      var isTimeBased = newVal[0];
+      var nameIsPattern = newVal[1];
+      var newDefault = getPatternDefault(newVal[2]);
+      var oldDefault = getPatternDefault(oldVal[2]);
+
+      if (index.name === oldDefault) {
+        index.name = newDefault;
+      }
+
+      if (!isTimeBased) {
+        index.nameIsPattern = false;
+      }
+
+      if (!nameIsPattern) {
         delete index.nameInterval;
         delete index.timeField;
+      } else {
+        index.nameInterval = index.nameInterval || intervals.byName['days'];
+        index.name = index.name || getPatternDefault(index.nameInterval);
       }
+
+    });
+
+    var mockIndexPattern = function (index) {
+      // trick the mapper into thinking this is an indexPattern
+      return {
+        id: index.name,
+        intervalName: index.nameInterval
+      };
     };
 
     $scope.moreSamples = function (andUpdate) {
@@ -191,15 +212,10 @@ define(function (require) {
     ], updateSamples);
 
     $scope.$watchMulti([
-      'index.nameIsPattern',
-      'index.isTimeBased'
-    ], updateDefaultForPatternType);
-
-    $scope.$watchMulti([
       'index.name',
       'index.isTimeBased',
-      'index.nameIsPattern',
-      'index.nameInterval'
+      'index.nameInterval',
+      'index.sampleCount'
     ], $scope.refreshFieldList);
   });
 });

@@ -34,6 +34,8 @@ define(function (require) {
         handler._attr.defaultOpacity = 0.6;
       }
 
+      this.checkIfEnoughData();
+
       this._attr = _.defaults(handler._attr || {}, {
         xValue: function (d) { return d.x; },
         yValue: function (d) { return d.y; }
@@ -56,6 +58,7 @@ define(function (require) {
         var label = d.label;
         return d.values.map(function (e, i) {
           return {
+            _input: e,
             label: label,
             x: self._attr.xValue.call(d.values, e, i),
             y: self._attr.yValue.call(d.values, e, i)
@@ -141,7 +144,7 @@ define(function (require) {
      */
     AreaChart.prototype.addCircleEvents = function (element, svg) {
       var events = this.events;
-      var isBrushable = (typeof events.dispatch.on('brush') === 'function');
+      var isBrushable = events.isBrushable();
       var brush = isBrushable ? events.addBrushEvent(svg) : undefined;
       var hover = events.addHoverEvent();
       var click = events.addClickEvent();
@@ -258,6 +261,18 @@ define(function (require) {
       // Adding clipPathBuffer to height so it doesn't
       // cutoff the lower part of the chart
       .attr('height', height + clipPathBuffer);
+    };
+
+    AreaChart.prototype.checkIfEnoughData = function () {
+      var series = this.chartData.series;
+
+      var notEnoughData = series.some(function (obj) {
+        return obj.values.length < 2;
+      });
+
+      if (notEnoughData) {
+        throw new errors.NotEnoughData();
+      }
     };
 
     /**

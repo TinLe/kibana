@@ -4,6 +4,7 @@ define(function (require) {
     var Table = Private(require('components/agg_response/tabify/_table'));
     var TableGroup = Private(require('components/agg_response/tabify/_table_group'));
     var getColumns = Private(require('components/agg_response/tabify/_get_columns'));
+    var AggConfigResult = require('components/vis/_agg_config_result');
 
     /**
      * Writer class that collects information about an aggregation response and
@@ -36,10 +37,15 @@ define(function (require) {
       // for every bucket
       this.metricsForAllBuckets = visIsHier;
 
+      // if true, values will be wrapped in aggConfigResult objects which link them
+      // to their aggConfig and enable the filterbar and tooltip formatters
+      this.asAggConfigResults = !!this.opts.asAggConfigResults;
+
       this.columns = getColumns(vis, this.minimalColumns);
       this.aggStack = _.pluck(this.columns, 'aggConfig');
 
       this.root = new TableGroup();
+      this.acrStack = [];
       this.splitStack = [this.root];
     }
 
@@ -55,14 +61,14 @@ define(function (require) {
     TabbedAggResponseWriter.prototype._table = function (group, agg, key) {
       var Class = (group) ? TableGroup : Table;
       var table = new Class();
+      var parent = this.splitStack[0];
 
       if (group) {
         table.aggConfig = agg;
         table.key = key;
-        table.title = agg.makeLabel() + ': ' + (table.fieldFormat()(key));
+        table.title = agg.makeLabel() + ': ' + (table.fieldFormatter()(key));
       }
 
-      var parent = this.splitStack[0];
       // link the parent and child
       table.$parent = parent;
       parent.tables.push(table);
@@ -91,16 +97,23 @@ define(function (require) {
 
       buckets.forEach(function (bucket, key) {
         // find the existing split that we should extend
-        var TableGroup = _.find(self.splitStack[0].tables, { aggConfig: agg, key: key });
+        var tableGroup = _.find(self.splitStack[0].tables, { aggConfig: agg, key: key });
         // create the split if it doesn't exist yet
-        if (!TableGroup) TableGroup = self._table(true, agg, key);
+        if (!tableGroup) tableGroup = self._table(true, agg, key);
+
+        var splitAcr = false;
+        if (self.asAggConfigResults) splitAcr = new AggConfigResult(agg, self.acrStack[0], key, key);
 
         // push the split onto the stack so that it will receive written tables
-        self.splitStack.unshift(TableGroup);
+        self.splitStack.unshift(tableGroup);
+        splitAcr && self.acrStack.unshift(splitAcr);
+
         // call the block
         if (_.isFunction(block)) block.call(self, bucket, key);
+
         // remove the split from the stack
         self.splitStack.shift();
+        splitAcr && self.acrStack.shift();
       });
     };
 
@@ -134,10 +147,20 @@ define(function (require) {
      * @param  {function} block - the function to run while this value is in the row
      * @return {any} - the value that was added
      */
-    TabbedAggResponseWriter.prototype.cell = function (value, block) {
+    TabbedAggResponseWriter.prototype.cell = function (agg, value, block) {
+      if (this.asAggConfigResults) {
+        value = new AggConfigResult(agg, this.acrStack[0], value, value);
+      }
+
+      var staskResult = this.asAggConfigResults && value.type === 'bucket';
+
       this.rowBuffer.push(value);
+      if (staskResult) this.acrStack.unshift(value);
+
       if (_.isFunction(block)) block.call(this);
+
       this.rowBuffer.pop(value);
+      if (staskResult) this.acrStack.shift();
 
       return value;
     };

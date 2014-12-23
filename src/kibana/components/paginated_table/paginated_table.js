@@ -25,6 +25,7 @@ define(function (require) {
         };
 
         self.sortColumn = function (col) {
+          if (col.sortable === false) return;
           var sortDirection;
           var cols = _.pluck($scope.columns, 'title');
           var index = cols.indexOf(col.title);
@@ -54,23 +55,25 @@ define(function (require) {
           } else {
             // use generic sort handler
             self.sort.getter = function (row) {
-              return row[index];
+              var value = row[index];
+              if (value && value.value != null) return value.value;
+              return value;
             };
           }
         };
 
         // update the sordedRows result
-        $scope.$watchMulti([
-          'paginatedTable.sort.direction',
-          'rows'
-        ], function () {
+        $scope.$watch('rows', rowSorter);
+        $scope.$watchCollection('paginatedTable.sort', rowSorter);
+
+        function rowSorter() {
           if (self.sort.direction == null) {
             $scope.sortedRows = $scope.rows.slice(0);
             return;
           }
 
           $scope.sortedRows = orderBy($scope.rows, self.sort.getter, self.sort.direction === 'desc');
-        });
+        }
       }
     };
   });

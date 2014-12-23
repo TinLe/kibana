@@ -1,8 +1,6 @@
 define(function (require) {
   var _ = require('lodash');
   return function ($scope) {
-
-    var remapFilters = require('components/filter_bar/lib/remapFilters');
     var toggleFilter = require('components/filter_bar/lib/toggleFilter')($scope);
 
     /**
@@ -15,7 +13,7 @@ define(function (require) {
         toggleFilter(filter, force);
       });
 
-      $scope.state.filters = _.map($scope.filters, remapFilters);
+      $scope.state.filters = $scope.filters;
     };
   };
 });

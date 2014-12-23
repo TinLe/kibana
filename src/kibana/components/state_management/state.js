@@ -5,7 +5,7 @@ define(function (require) {
   var applyDiff = require('utils/diff_object');
   var qs = require('utils/query_string');
 
-  return function StateProvider(Private, $rootScope, $location) {
+  return function StateProvider(Notifier, Private, $rootScope, $location) {
     var Events = Private(require('factories/events'));
 
     _(State).inherits(Events);
@@ -40,7 +40,15 @@ define(function (require) {
 
     State.prototype._readFromURL = function () {
       var search = $location.search();
-      return search[this._urlParam] ? rison.decode(search[this._urlParam]) : null;
+      try {
+        return search[this._urlParam] ? rison.decode(search[this._urlParam]) : null;
+      } catch (e) {
+        var notify = new Notifier();
+        notify.error('Unable to parse URL');
+        search[this._urlParam] = rison.encode(this._defaults);
+        $location.search(search).replace();
+        return null;
+      }
     };
 
     /**
@@ -73,10 +81,10 @@ define(function (require) {
      * Saves the state to the url
      * @returns {void}
      */
-    State.prototype.save = function () {
+    State.prototype.save = function (replace) {
       var stash = this._readFromURL();
       var state = this.toObject();
-      var replace = false;
+      replace = replace || false;
 
       if (!stash) {
         replace = true;
@@ -102,6 +110,14 @@ define(function (require) {
     };
 
     /**
+     * Calls save with a forced replace
+     * @returns {void}
+     */
+    State.prototype.replace = function () {
+      this.save(true);
+    };
+
+    /**
      * Resets the state to the defaults
      *
      * @returns {void}
@@ -109,7 +125,10 @@ define(function (require) {
     State.prototype.reset = function () {
       // apply diff to _attributes from defaults, this is side effecting so
       // it will change the state in place.
-      applyDiff(this, this._defaults);
+      var diffResults = applyDiff(this, this._defaults);
+      if (diffResults.keys.length) {
+        this.emit('reset_with_changes', diffResults.keys);
+      }
       this.save();
     };
 

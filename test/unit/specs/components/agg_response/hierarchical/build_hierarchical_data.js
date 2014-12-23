@@ -1,16 +1,22 @@
 define(function (require) {
   var _ = require('lodash');
   var fixtures = require('fixtures/fake_hierarchical_data');
+  var sinon = require('test_utils/auto_release_sinon');
 
-  var AggConfigs;
   var Vis;
+  var Notifier;
+  var AggConfigs;
   var indexPattern;
   var buildHierarchicalData;
 
   describe('buildHierarchicalData()', function () {
 
     beforeEach(module('kibana'));
-    beforeEach(inject(function (Private) {
+    beforeEach(inject(function (Private, $injector) {
+      // stub the error method before requiring vis causes Notifier#error to be bound
+      Notifier = $injector.get('Notifier');
+      sinon.stub(Notifier.prototype, 'error');
+
       Vis = Private(require('components/vis/vis'));
       AggConfigs = Private(require('components/vis/_agg_configs'));
       indexPattern = Private(require('fixtures/stubbed_logstash_index_pattern'));
@@ -117,6 +123,15 @@ define(function (require) {
         expect(results).to.have.property('raw');
       });
 
+      it('should set the parent of the first item in the split', function () {
+        expect(results).to.have.property('rows');
+        expect(results.rows).to.have.length(3);
+        expect(results.rows[0]).to.have.property('slices');
+        expect(results.rows[0].slices).to.have.property('children');
+        expect(results.rows[0].slices.children).to.have.length(2);
+        expect(results.rows[0].slices.children[0]).to.have.property('aggConfigResult');
+        expect(results.rows[0].slices.children[0].aggConfigResult.$parent).to.have.property('key', 'png');
+      });
 
     });
 
@@ -221,6 +236,41 @@ define(function (require) {
         expect(results).to.have.property('raw');
       });
 
+    });
+
+    describe('oneFilterBucket that is a split', function () {
+      var vis, results;
+
+      beforeEach(function () {
+        var id = 1;
+        vis = new Vis(indexPattern, {
+          type: 'pie',
+          aggs: [
+            { type: 'count', schema: 'metric' },
+            { type: 'filters', schema: 'split', params: {
+                filters: [
+                  { input: { query: { query_string: { query: '_type:apache' } } } },
+                  { input: { query: { query_string: { query: '_type:nginx' } } } }
+                ]
+              }
+            }
+            ]
+          });
+        // We need to set the aggs to a known value.
+        _.each(vis.aggs, function (agg) { agg.id = 'agg_' + id++; });
+        results = buildHierarchicalData(vis, fixtures.oneFilterBucket);
+      });
+
+      it('should set the hits attribute for the results', function () {
+        var errCall = Notifier.prototype.error.getCall(0);
+        expect(errCall).to.be.ok();
+        expect(errCall.args[0]).to.contain('not supported');
+
+        expect(results).to.have.property('slices');
+        expect(results).to.have.property('names');
+        expect(results.names).to.have.length(2);
+        expect(results).to.have.property('raw');
+      });
     });
 
   });

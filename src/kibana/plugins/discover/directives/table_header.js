@@ -11,30 +11,23 @@ define(function (require) {
       scope: {
         columns: '=',
         sorting: '=',
-        mapping: '=',
+        indexPattern: '=',
         timefield: '=?'
       },
       template: headerHtml,
       controller: function ($scope) {
-        var unsortableFields = ['geo_point', 'geo_shape', 'attachment'];
         var sortableField = function (field) {
-          var mapping = $scope.mapping[field];
-          return mapping && mapping.indexed && !_.contains(unsortableFields, mapping.type);
+          return $scope.indexPattern.fields.byName[field].sortable;
         };
 
         $scope.headerClass = function (column) {
           if (!sortableField(column)) return;
 
           var sorting = $scope.sorting;
-          var defaultClass = ['fa', 'fa-sort', 'table-header-sortchange'];
+          var defaultClass = ['fa', 'fa-sort-up', 'table-header-sortchange'];
 
-          if (!sorting) return defaultClass;
-
-          if (column === sorting[0]) {
-            return ['fa', sorting[1] === 'asc' ? 'fa-sort-up' : 'fa-sort-down'];
-          } else {
-            return defaultClass;
-          }
+          if (!sorting || column !== sorting[0]) return defaultClass;
+          return ['fa', sorting[1] === 'asc' ? 'fa-sort-up' : 'fa-sort-down'];
         };
 
         $scope.moveLeft = function (column) {
@@ -53,10 +46,10 @@ define(function (require) {
 
         $scope.sort = function (column) {
           if (!sortableField(column)) return;
-          var sorting = $scope.sorting || [];
-          $scope.sorting = [column, sorting[1] === 'asc' ? 'desc' : 'asc'];
-        };
 
+          var sorting = $scope.sorting || [];
+          $scope.sorting = [column, (sorting[0] === column && sorting[1] === 'asc') ? 'desc' : 'asc'];
+        };
       }
     };
   });

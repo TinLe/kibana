@@ -2,14 +2,14 @@ define(function (require) {
   return function HierarchicalTooltipFormaterProvider($rootScope, $compile, $sce) {
     var _ = require('lodash');
     var $ = require('jquery');
-    var $tooltip = $(require('text!plugins/vis_types/tooltips/pie.html'));
+    var $tooltip = $(require('text!components/agg_response/hierarchical/_tooltip.html'));
     var collectBranch = require('components/agg_response/hierarchical/_collect_branch');
     var $tooltipScope = $rootScope.$new();
     $compile($tooltip)($tooltipScope);
 
     return function (columns) {
       return function (event) {
-        var datum = event.point;
+        var datum = event.datum;
         var parent;
         var sum;
 

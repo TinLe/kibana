@@ -1,7 +1,7 @@
 <div dashboard-app class="app-container dashboard-container">
   <nav ng-show="!appEmbedded" class="navbar navbar-default navbar-static-top">
     <navbar>
-      <span class="name" ng-if="dash.id" bindonce bo-bind="dash.title"></span>
+      <span class="name" ng-if="dash.id" bindonce bo-bind="dash.title" tooltip="{{dash.title}}"></span>
 
       <form name="queryInput"
         class="fill inline-form"
@@ -48,6 +48,8 @@
   </nav>
 
   <config config-template="configTemplate" config-object="opts"></config>
+
+  <filter-bar state="state"></filter-bar>
 
   <div ng-show="!state.panels.length" class="text-center start-screen">
     <h2>Ready to get started?</h2>

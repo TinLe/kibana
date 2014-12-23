@@ -20,7 +20,7 @@
         </div>
       </li>
       <li
-        ng-repeat="pattern in indexPatternList | orderBy:-default"
+        ng-repeat="pattern in indexPatternList | orderBy:['-default','id'] track by pattern.id "
         class="sidebar-item">
         <a bo-href="pattern.url">
           <div bo-class="pattern.class">
@@ -32,4 +32,5 @@
     </ul>
   </div>
 </div>
+
 <div class="col-md-10" ng-transclude></div>

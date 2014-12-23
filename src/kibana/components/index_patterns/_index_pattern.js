@@ -1,5 +1,5 @@
 define(function (require) {
-  return function IndexPatternFactory(Private, timefilter, configFile, Notifier, shortDotsFilter) {
+  return function IndexPatternFactory(Private, timefilter, configFile, Notifier, shortDotsFilter, config) {
     var _ = require('lodash');
     var angular = require('angular');
     var errors = require('errors');
@@ -8,9 +8,14 @@ define(function (require) {
     var mapper = Private(require('components/index_patterns/_mapper'));
     var fieldFormats = Private(require('components/index_patterns/_field_formats'));
     var intervals = Private(require('components/index_patterns/_intervals'));
-    var mappingSetup = Private(require('utils/mapping_setup'));
-    var DocSource = Private(require('components/courier/data_source/doc_source'));
+    var fieldTypes = Private(require('components/index_patterns/_field_types'));
     var flattenSearchResponse = require('components/index_patterns/_flatten_search_response');
+    var flattenHit = require('components/index_patterns/_flatten_hit');
+    var getComputedFields = require('components/index_patterns/_get_computed_fields');
+
+
+    var DocSource = Private(require('components/courier/data_source/doc_source'));
+    var mappingSetup = Private(require('utils/mapping_setup'));
     var IndexedArray = require('utils/indexed_array/index');
 
     var type = 'index-pattern';
@@ -22,8 +27,7 @@ define(function (require) {
       timeFieldName: 'string',
       intervalName: 'string',
       customFormats: 'json',
-      fields: 'json',
-      scriptedFields: 'json'
+      fields: 'json'
     });
 
     function IndexPattern(id) {
@@ -39,7 +43,7 @@ define(function (require) {
       self.init = function () {
         // tell the docSource where to find the doc
         docSource
-        .index(configFile.kibanaIndex)
+        .index(configFile.kibana_index)
         .type(type)
         .id(self.id);
 
@@ -68,13 +72,7 @@ define(function (require) {
             // Give obj all of the values in _source.fields
             _.assign(self, resp._source);
 
-            if (self.id) {
-              if (!self.fields || !self.scriptedFields) {
-                return self.refreshFields();
-              } else {
-                setIndexedValue('fields');
-              }
-            }
+            self._indexFields();
 
             // Any time obj is updated, re-call applyESResp
             docSource.onUpdate().then(applyESResp, notify.fatal);
@@ -93,18 +91,28 @@ define(function (require) {
           group: ['type'],
           initialSet: value.map(function (field) {
             field.count = field.count || 0;
+            if (field.hasOwnProperty('format')) return field;
 
-            // non-enumerable type so that it does not get included in the JSON
+            var type = fieldTypes.byName[field.type];
             Object.defineProperties(field, {
+              scripted: {
+                // enumerable properties end up in the JSON
+                enumerable: true,
+                value: !!field.scripted
+              },
+              sortable: {
+                value: field.indexed && type.sortable
+              },
+              filterable: {
+                value: field.name === '_id' || (field.indexed && type.filterable)
+              },
               format: {
-                enumerable: false,
                 get: function () {
                   var formatName = self.customFormats && self.customFormats[field.name];
                   return formatName ? fieldFormats.byName[formatName] : fieldFormats.defaultByType[field.type];
                 }
               },
               displayName: {
-                enumerable: false,
                 get: function () {
                   return shortDotsFilter(field.name);
                 }
@@ -116,15 +124,64 @@ define(function (require) {
         });
       }
 
-      self.popularizeField = function (fieldName, unit) {
-        if (_.isUndefined(unit)) unit = 1;
-        if (!(self.fields.byName && self.fields.byName[fieldName])) return;
+      self._indexFields = function () {
+        if (self.id) {
+          if (!self.fields) {
+            return self.refreshFields();
+          } else {
+            setIndexedValue('fields');
+          }
+        }
+      };
 
-        var field = self.fields.byName[fieldName];
-        if (!field.count && unit < 1) return;
-        if (!field.count) field.count = 1;
-        else field.count = field.count + (unit);
+      self.addScriptedField = function (name, script, type) {
+        type = type || 'string';
+
+        var scriptFields = _.pluck(self.getFields('scripted'), 'name');
+
+        if (_.contains(scriptFields, name)) {
+          throw new errors.DuplicateField(name);
+        }
+
+        var scriptedField = self.fields.push({
+          name: name,
+          script: script,
+          type: type,
+          scripted: true,
+        });
+
         self.save();
+      };
+
+      self.removeScriptedField = function (name) {
+        var fieldIndex = _.findIndex(self.fields, {
+          name: name,
+          scripted: true
+        });
+
+        self.fields.splice(fieldIndex, 1);
+
+        self.save();
+      };
+
+      self.popularizeField = function (fieldName, unit) {
+        if (unit == null) unit = 1;
+
+        var field = _.deepGet(self, ['fields', 'byName', fieldName]);
+        if (!field) return;
+
+        var count = Math.max((field.count || 0) + unit, 0);
+        if (field.count !== count) {
+          field.count = count;
+          self.save();
+        }
+      };
+
+      self.getFields = function (type) {
+        var getScripted = (type === 'scripted');
+        return _.where(self.fields, function (field) {
+          return field.scripted ? getScripted : !getScripted;
+        });
       };
 
       self.getInterval = function () {
@@ -170,7 +227,6 @@ define(function (require) {
         return mapper.clearCache(self)
         .then(function () {
           return self._fetchFields()
-          .then(self._fetchScriptedFields)
           .then(self.save);
         });
       };
@@ -178,12 +234,10 @@ define(function (require) {
       self._fetchFields = function () {
         return mapper.getFieldsForIndexPattern(self, true)
         .then(function (fields) {
+          // append existing scripted fields
+          fields = fields.concat(self.getFields('scripted'));
           setIndexedValue('fields', fields);
         });
-      };
-
-      self._fetchScriptedFields = function () {
-        setIndexedValue('scriptedFields', []);
       };
 
       self.toJSON = function () {
@@ -194,7 +248,11 @@ define(function (require) {
         return '' + self.toJSON();
       };
 
+      self.metaFields = config.get('metaFields');
       self.flattenSearchResponse = flattenSearchResponse.bind(self);
+      self.flattenHit = flattenHit.bind(self);
+      self.getComputedFields = getComputedFields.bind(self);
+
 
     }
     return IndexPattern;

@@ -5,6 +5,7 @@ define(function (require) {
   var settingsHtml = require('text!plugins/discover/partials/settings.html');
   var saveHtml = require('text!plugins/discover/partials/save_search.html');
   var loadHtml = require('text!plugins/discover/partials/load_search.html');
+  var onlyDisabled = require('components/filter_bar/lib/onlyDisabled');
 
   var interval = require('utils/interval');
   var datemath = require('utils/datemath');
@@ -53,6 +54,7 @@ define(function (require) {
     var Vis = Private(require('components/vis/vis'));
     var docTitle = Private(require('components/doc_title/doc_title'));
     var SegmentedFetch = Private(require('plugins/discover/_segmented_fetch'));
+    var brushEvent = Private(require('utils/brush_event'));
 
     var HitSortFn = Private(require('plugins/discover/_hit_sort_fn'));
 
@@ -85,10 +87,9 @@ define(function (require) {
       docTitle.change(savedSearch.title);
     }
 
-    var defaultFormat = courier.indexPatterns.fieldFormats.defaultByType.string;
-
     var stateDefaults = {
       query: initialQuery || '',
+      sort: savedSearch.sort || [],
       columns: savedSearch.columns || ['_source'],
       index: $scope.searchSource.get('index').id || config.get('defaultIndex'),
       interval: 'auto',
@@ -120,12 +121,25 @@ define(function (require) {
       index: $state.index,
       savedSearch: savedSearch,
       indexPatternList: indexPatternList,
+      changeIndexAndReload: function () {
+        $state.index = $scope.opts.index;
+        $state.save();
+        $route.reload();
+      }
     };
 
     // stores the complete list of fields
     $scope.fields = null;
 
     var init = _.once(function () {
+      var showTotal = 5;
+      $scope.failuresShown = showTotal;
+      $scope.showAllFailures = function () {
+        $scope.failuresShown = $scope.failures.length;
+      };
+      $scope.showLessFailures = function () {
+        $scope.failuresShown = showTotal;
+      };
       return $scope.updateDataSource()
       .then(function () {
         setFields();
@@ -134,16 +148,20 @@ define(function (require) {
         var ignoreStateChanges = ['columns'];
 
         // listen for changes, and relisten everytime something happens
-        $scope.$listen($state, 'fetch_with_changes', function (changed) {
+        $scope.$listen($state, 'fetch_with_changes', updateFields);
+        $scope.$listen($state, 'reset_with_changes', updateFields);
+
+        function updateFields(changed) {
           if (_.contains(changed, 'columns')) {
             $scope.fields.forEach(function (field) {
               field.display = _.contains($state.columns, field.name);
             });
+            refreshColumns();
           }
 
           // if we only have ignorable changes, do nothing
           if (_.difference(changed, ignoreStateChanges).length) $scope.fetch();
-        });
+        }
 
         $scope.$listen(timefilter, 'update', function () {
           $scope.fetch();
@@ -159,7 +177,8 @@ define(function (require) {
           if (!angular.equals(sort, currentSort)) $scope.fetch();
         });
 
-        $scope.$watch('state.filters', function (filters) {
+        $scope.$watch('state.filters', function (newFilters, oldFilters) {
+          if (onlyDisabled(newFilters, oldFilters)) return;
           $scope.fetch();
         });
 
@@ -229,6 +248,7 @@ define(function (require) {
       .then(function () {
         savedSearch.id = savedSearch.title;
         savedSearch.columns = $scope.state.columns;
+        savedSearch.sort = $scope.state.sort;
 
         return savedSearch.save()
         .then(function () {
@@ -247,6 +267,7 @@ define(function (require) {
 
       function flushResponseData() {
         $scope.hits = 0;
+        $scope.faliures = [];
         $scope.rows = [];
         $scope.rows.fieldCounts = {};
       }
@@ -267,7 +288,7 @@ define(function (require) {
 
         var sort = $state.sort;
         var timeField = $scope.searchSource.get('index').timeFieldName;
-        var totalSize = $scope.size || 500;
+        var totalSize = $scope.size || $scope.opts.sampleSize;
 
         /**
          * Basically an emum.
@@ -308,6 +329,13 @@ define(function (require) {
               flushResponseData();
             }
 
+            if (resp._shards.failed > 0) {
+              $scope.failures = _.union($scope.failures, resp._shards.failures);
+              $scope.failures = _.uniq($scope.failures, false, function (failure) {
+                return failure.index + failure.shard + failure.reason;
+              });
+            }
+
             $scope.hits += resp.hits.total;
             var rows = $scope.rows;
             var counts = rows.fieldCounts;
@@ -327,30 +355,24 @@ define(function (require) {
               // ---
               // when we are sorting results, we need to redo the counts each time because the
               // "top 500" may change with each response
-              if (hit._formatted && !sortFn) return;
+              if (hit.$$_formatted && !sortFn) return;
 
               // Flatten the fields
               var indexPattern = $scope.searchSource.get('index');
-              hit._flattened = indexPattern.flattenSearchResponse(hit._source);
+              hit.$$_flattened = indexPattern.flattenHit(hit);
 
-              var formatValues = function (value, name) {
+              var formatAndCount = function (value, name) {
                 // add up the counts for each field name
-                if (counts[name]) counts[name] = counts[name] + 1;
-                else counts[name] = 1;
+                counts[name] = counts[name] ? counts[name] + 1 : 1;
 
-                return ($scope.formatsByName[name] || defaultFormat).convert(value);
+                var defaultFormat = courier.indexPatterns.fieldFormats.defaultByType.string;
+                var field = indexPattern.fields.byName[name];
+                var formatter = (field && field.format) ? field.format : defaultFormat;
+
+                return formatter.convert(value);
               };
 
-              var formattedSource = _.mapValues(hit._flattened, formatValues);
-              var formattedHits = _.mapValues(hit.fields, formatValues);
-
-              hit._formatted = _.merge(formattedSource, formattedHits);
-              hit._formatted._source = angular.toJson(hit._source);
-            });
-
-            // ensure that the meta fields always have a "row count" equal to the number of rows
-            metaFields.forEach(function (fieldName) {
-              counts[fieldName] = $scope.rows.length;
+              hit.$$_formatted = _.mapValues(hit.$$_flattened, formatAndCount);
             });
 
             // apply the field counts to the field list
@@ -448,7 +470,7 @@ define(function (require) {
       .set('filter', $state.filters || []);
 
       // get the current indexPattern
-      var indexPattern = $scope.searchSource.get('index');
+      var indexPattern = $scope.indexPattern = $scope.searchSource.get('index');
 
       // if indexPattern exists, but $scope.opts.index doesn't, or the opposite, or if indexPattern's id
       // is not equal to the $scope.opts.index then either clean or
@@ -466,13 +488,14 @@ define(function (require) {
       .then(function (indexPattern) {
         $scope.opts.timefield = indexPattern.timeFieldName;
 
-        // are we updating the indexPattern?
+        // did we update the index pattern?
         var refresh = indexPattern !== $scope.searchSource.get('index');
 
         // make sure the pattern is set on the "leaf" searchSource, not just the root
-        $scope.searchSource.index(indexPattern);
+        $scope.searchSource.set('index', indexPattern);
 
         if (refresh) {
+          $scope.indexPattern = indexPattern;
           delete $scope.fields;
           delete $scope.columns;
           setFields();
@@ -501,23 +524,20 @@ define(function (require) {
 
       $scope.fields = [];
       $scope.fieldsByName = {};
-      $scope.formatsByName = {};
 
       if (!indexPattern) return;
 
       _.sortBy(indexPattern.fields, 'name').forEach(function (field) {
         _.defaults(field, currentState[field.name]);
-        // clone the field and add it's display prop
-        var clone = _.assign({}, field, {
-          displayName: field.displayName, // this is a getter, so we need to copy it over manually
-          format: field.format, // this is a getter, so we need to copy it over manually
-          display: columnObjects[field.name] || false,
-          rowCount: $scope.rows ? $scope.rows.fieldCounts[field.name] : 0
-        });
+
+        // clone the field with Object.create so that it's getters
+        // and non-enumerable props are preserved
+        var clone = Object.create(field);
+        clone.display = columnObjects[field.name] || false;
+        clone.rowCount = $scope.rows ? $scope.rows.fieldCounts[field.name] : 0;
 
         $scope.fields.push(clone);
         $scope.fieldsByName[field.name] = clone;
-        $scope.formatsByName[field.name] = field.format;
       });
 
       refreshColumns();
@@ -529,6 +549,7 @@ define(function (require) {
 
       var indexPattern = $scope.searchSource.get('index');
       indexPattern.popularizeField(field, 1);
+      var negate = operation === '-';
 
       // Grap the filters from the searchSource and ensure it's an array
       var filters = _.flatten([$state.filters], true);
@@ -550,7 +571,10 @@ define(function (require) {
           }
         });
 
-        if (existing) return;
+        if (existing) {
+          if (existing.meta.negate !== negate) existing.meta.negate = negate;
+          return;
+        }
 
         switch (field) {
         case '_exists_':
@@ -568,8 +592,7 @@ define(function (require) {
           });
           break;
         default:
-          var filter = { query: { match: {} } };
-          filter.negate = operation === '-';
+          var filter = { meta: { negate: negate, index: $state.index }, query: { match: {} } };
           filter.query.match[field] = { query: value, type: 'phrase' };
           filters.push(filter);
           break;
@@ -614,6 +637,7 @@ define(function (require) {
 
       // Make sure there are no columns added that aren't in the displayed field list.
       $state.columns = _.intersection($state.columns, fields);
+
 
       // If no columns remain, use _source
       if (!$state.columns.length) {
@@ -671,16 +695,7 @@ define(function (require) {
             timefilter.time.to = moment(e.point.x + e.data.ordered.interval);
             timefilter.time.mode = 'absolute';
           },
-          brush: function (e) {
-            var from = moment(e.range[0]);
-            var to = moment(e.range[1]);
-
-            if (to - from === 0) return;
-
-            timefilter.time.from = from;
-            timefilter.time.to = to;
-            timefilter.time.mode = 'absolute';
-          }
+          brush: brushEvent
         },
         aggs: [
           {

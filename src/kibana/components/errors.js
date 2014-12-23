@@ -135,6 +135,17 @@ define(function (require) {
   inherits(errors.FieldNotFoundInCache, KbnError);
 
   /**
+   * when a mapping already exists for a field the user is attempting to add
+   * @param {String} name - the field name
+   */
+  errors.DuplicateField = function DuplicateField(name) {
+    KbnError.call(this,
+      'The "' + name + '" field already exists in this mapping',
+      errors.DuplicateField);
+  };
+  inherits(errors.DuplicateField, KbnError);
+
+  /**
    * A saved object was not found
    * @param {String} field - the fields which contains the conflict
    */
@@ -190,6 +201,18 @@ define(function (require) {
     errors.ContainerTooSmall);
   };
   inherits(errors.ContainerTooSmall, KbnError);
+
+  /**
+   * error thrown when user tries to render an chart with less
+   * than the required number of data points
+   * @param {String} message - the message to provide with the error
+   */
+  errors.NotEnoughData = function NotEnoughData() {
+    KbnError.call(this,
+      'There are not enough data points to render this chart',
+      errors.NotEnoughData);
+  };
+  inherits(errors.NotEnoughData, KbnError);
 
   return errors;
 });

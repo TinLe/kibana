@@ -2,6 +2,7 @@ define(function (require) {
   return function LineChartFactory(d3, Private) {
     var _ = require('lodash');
     var $ = require('jquery');
+    var errors = require('errors');
 
     var Chart = Private(require('components/vislib/visualizations/_chart'));
     require('css!components/vislib/styles/main');
@@ -41,7 +42,7 @@ define(function (require) {
      */
     LineChart.prototype.addCircleEvents = function (element, svg) {
       var events = this.events;
-      var isBrushable = (typeof events.dispatch.on('brush') === 'function');
+      var isBrushable = events.isBrushable();
       var brush = isBrushable ? events.addBrushEvent(svg) : undefined;
       var hover = events.addHoverEvent();
       var click = events.addClickEvent();
@@ -237,6 +238,7 @@ define(function (require) {
             var label = d.label;
             return d.values.map(function mapValues(e, i) {
               return {
+                _input: e,
                 label: label,
                 x: self._attr.xValue.call(d.values, e, i),
                 y: self._attr.yValue.call(d.values, e, i)
@@ -247,8 +249,8 @@ define(function (require) {
           width = elWidth - margin.left - margin.right;
           height = elHeight - margin.top - margin.bottom;
 
-          if (_.isNaN(width) || width < minWidth || _.isNaN(height) || height < minHeight) {
-            throw new Error(chartToSmallError);
+          if (width < minWidth || height < minHeight) {
+            throw new errors.ContainerTooSmall();
           }
 
           div = d3.select(el);

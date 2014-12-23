@@ -27,14 +27,14 @@ define(function (require) {
     // This stores the Kibana revision number, @REV@ is replaced by grunt.
     .constant('kbnVersion', window.KIBANA_VERSION)
     // The build number is placed by grunt, represents a sequence to provide nothing really but order.
-    .constant('buildNum', window.KIBANA_BUILD_NUM)
+    // If NaN, use the max value of a JS number, that way we always have a number here, even in dev
+    .constant('buildNum', _.parseInt(window.KIBANA_BUILD_NUM) || Number.MAX_VALUE)
     // This stores the build number, @REV@ is replaced by grunt.
     .constant('commitSha', window.KIBANA_COMMIT_SHA)
     // Use this for cache busting partials
     .constant('cacheBust', window.KIBANA_COMMIT_SHA)
     // The minimum Elasticsearch version required to run Kibana
-    //.constant('minimumElasticsearchVersion', '1.4.0.Beta1')
-    .constant('minimumElasticsearchVersion', '1.3.2')
+    .constant('minimumElasticsearchVersion', '1.4.0')
     // When we need to identify the current session of the app, ef shard preference
     .constant('sessionId', Date.now())
     // attach the route manager's known routes
@@ -46,7 +46,7 @@ define(function (require) {
   // setup routes
   routes
     .otherwise({
-      redirectTo: '/' + configFile.defaultAppId
+      redirectTo: '/' + configFile.default_app_id
     });
 
   // tell the modules util to add it's modules as requirements for kibana

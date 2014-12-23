@@ -1,10 +1,12 @@
 define(function (require) {
   return function MapperService(Private, Promise, es, configFile) {
     var _ = require('lodash');
+    var moment = require('moment');
 
     var IndexPatternMissingIndices = require('errors').IndexPatternMissingIndices;
     var transformMappingIntoFields = Private(require('components/index_patterns/_transform_mapping_into_fields'));
     var intervals = Private(require('components/index_patterns/_intervals'));
+    var patternToWildcard = Private(require('components/index_patterns/_pattern_to_wildcard'));
 
     var LocalCache = Private(require('components/index_patterns/_local_cache'));
 
@@ -25,14 +27,13 @@ define(function (require) {
        */
       self.getFieldsForIndexPattern = function (indexPattern, skipIndexPatternCache) {
         var id = indexPattern.id;
-        var indexList = indexPattern.toIndexList(-5, 5);
 
         var cache = fieldCache.get(id);
         if (cache) return Promise.resolve(cache);
 
         if (!skipIndexPatternCache) {
           return es.get({
-            index: configFile.kibanaIndex,
+            index: configFile.kibana_index,
             type: 'index-pattern',
             id: id,
             _sourceInclude: ['fields']
@@ -45,13 +46,23 @@ define(function (require) {
           });
         }
 
-        return es.indices.getFieldMapping({
-          // TODO: Change index to be the resolved in some way, last three months, last hour, last year, whatever
-          index: indexList,
-          field: '*',
-          ignoreUnavailable: _.isArray(indexList),
-          allowNoIndices: false,
-          includeDefaults: true
+        var promise = Promise.resolve(id);
+        if (indexPattern.intervalName) {
+          promise = self.getIndicesForIndexPattern(indexPattern)
+          .then(function (existing) {
+            if (existing.matches.length === 0) throw new IndexPatternMissingIndices();
+            return existing.matches.slice(-5); // Grab the most recent 5
+          });
+        }
+
+        return promise.then(function (indexList) {
+          return es.indices.getFieldMapping({
+            index: indexList,
+            field: '*',
+            ignoreUnavailable: _.isArray(indexList),
+            allowNoIndices: false,
+            includeDefaults: true
+          });
         })
         .catch(function (err) {
           if (err.status >= 400) {
@@ -66,6 +77,25 @@ define(function (require) {
         .then(function (fields) {
           fieldCache.set(id, fields);
           return fieldCache.get(id);
+        });
+      };
+
+      self.getIndicesForIndexPattern = function (indexPattern) {
+        return es.indices.getAliases({
+          index: patternToWildcard(indexPattern.id)
+        })
+        .then(function (resp) {
+          var all = Object.keys(resp).sort();
+
+          var matches = all.filter(function (existingIndex) {
+            var parsed = moment(existingIndex, indexPattern.id);
+            return existingIndex === parsed.format(indexPattern.id);
+          });
+
+          return {
+            all: all,
+            matches: matches
+          };
         });
       };
 

@@ -1,6 +1,5 @@
 define(function (require) {
   var _ = require('lodash');
-  var remapFilters = require('./remapFilters');
   return function ($scope) {
     /**
      * Toggles the filter between enabled/disabled.
@@ -10,12 +9,12 @@ define(function (require) {
      */
     return function (filter, force) {
       // Toggle the disabled flag
-      var disabled = _.isUndefined(force) ? !filter.disabled : force;
-      filter.disabled = disabled;
-      filter.filter.disabled = disabled;
+      var disabled = _.isUndefined(force) ? !filter.meta.disabled : force;
+      filter.meta.disabled = disabled;
 
       // Save the filters back to the searchSource
-      $scope.state.filters = _.map($scope.filters, remapFilters);
+      $scope.state.filters = $scope.filters;
+      return filter;
     };
   };
 });

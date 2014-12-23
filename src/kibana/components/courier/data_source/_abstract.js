@@ -9,9 +9,10 @@ define(function (require) {
     var courierFetch = Private(require('components/courier/fetch/fetch'));
 
     function SourceAbstract(initialState) {
-      this._instanceid = _.uniqueId('data_source');
+      var self = this;
+      self._instanceid = _.uniqueId('data_source');
 
-      this._state = (function () {
+      self._state = (function () {
         // state can be serialized as JSON, and passed back in to restore
         if (initialState) {
           if (typeof initialState === 'string') {
@@ -25,20 +26,20 @@ define(function (require) {
       }());
 
       // set internal state values
-      this._methods.forEach(function (name) {
-        this[name] = function (val) {
+      self._methods.forEach(function (name) {
+        self[name] = function (val) {
           if (val == null) {
-            delete this._state[name];
+            delete self._state[name];
           } else {
-            this._state[name] = val;
+            self._state[name] = val;
           }
 
-          return this;
+          return self;
         };
-      }, this);
+      });
 
-      this.history = [];
-      this._fetchStrategy = courierFetch.strategies[this._getType()];
+      self.history = [];
+      self._fetchStrategy = courierFetch.strategies[self._getType()];
     }
 
     /*****
@@ -264,7 +265,14 @@ define(function (require) {
               'match_all': {}
             };
           }
-          flatState.body.fields = ['*', '_source'];
+
+          var computedFields = flatState.index.getComputedFields();
+          flatState.body.fields = computedFields.fields;
+          flatState.body.script_fields = flatState.body.script_fields || {};
+          flatState.body.fielddata_fields = flatState.body.fielddata_fields || [];
+
+          _.extend(flatState.body.script_fields, computedFields.scriptFields);
+          flatState.body.fielddata_fields = _.union(flatState.body.fielddata_fields, computedFields.fielddataFields);
 
 
           /**
@@ -276,8 +284,8 @@ define(function (require) {
            */
           var filterNegate = function (reverse) {
             return function (filter) {
-              if (_.isUndefined(filter.negate)) return !reverse;
-              return filter.negate === reverse;
+              if (_.isUndefined(filter.meta) || _.isUndefined(filter.meta.negate)) return !reverse;
+              return filter.meta && filter.meta.negate === reverse;
             };
           };
 
@@ -287,7 +295,7 @@ define(function (require) {
            * @returns {object}
            */
           var cleanFilter = function (filter) {
-            return _.omit(filter, ['negate', 'disabled']);
+            return _.omit(filter, ['$$hashKey', 'meta']);
           };
 
           // switch to filtered query if there are filters
