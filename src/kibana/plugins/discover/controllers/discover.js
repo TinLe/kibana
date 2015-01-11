@@ -6,6 +6,7 @@ define(function (require) {
   var saveHtml = require('text!plugins/discover/partials/save_search.html');
   var loadHtml = require('text!plugins/discover/partials/load_search.html');
   var onlyDisabled = require('components/filter_bar/lib/onlyDisabled');
+  var filterManager = require('components/filter_manager/filter_manager');
 
   var interval = require('utils/interval');
   var datemath = require('utils/datemath');
@@ -21,8 +22,6 @@ define(function (require) {
   require('components/state_management/app_state');
   require('services/timefilter');
   require('components/highlight/highlight_tags');
-
-  require('plugins/discover/directives/table');
 
   var app = require('modules').get('apps/discover', [
     'kibana/notify',
@@ -53,7 +52,6 @@ define(function (require) {
 
     var Vis = Private(require('components/vis/vis'));
     var docTitle = Private(require('components/doc_title/doc_title'));
-    var SegmentedFetch = Private(require('plugins/discover/_segmented_fetch'));
     var brushEvent = Private(require('utils/brush_event'));
 
     var HitSortFn = Private(require('plugins/discover/_hit_sort_fn'));
@@ -73,32 +71,26 @@ define(function (require) {
 
     // the actual courier.SearchSource
     $scope.searchSource = savedSearch.searchSource;
-    var segmentedFetch = $scope.segmentedFetch = new SegmentedFetch($scope.searchSource);
-
-    // abort any seqmented query requests when leaving discover
-    $scope.$on('$routeChangeStart', function () {
-      segmentedFetch.abort();
-    });
-
-    // Manage state & url state
-    var initialQuery = $scope.searchSource.get('query');
 
     if (savedSearch.id) {
       docTitle.change(savedSearch.title);
     }
 
-    var stateDefaults = {
-      query: initialQuery || '',
-      sort: savedSearch.sort || [],
-      columns: savedSearch.columns || ['_source'],
-      index: $scope.searchSource.get('index').id || config.get('defaultIndex'),
-      interval: 'auto',
-      filters: _.cloneDeep($scope.searchSource.get('filter'))
-    };
+    var $state = $scope.state = new AppState(getStateDefaults());
+
+    function getStateDefaults() {
+      return {
+        query: $scope.searchSource.get('query') || '',
+        sort: savedSearch.sort || [],
+        columns: savedSearch.columns || ['_source'],
+        index: $scope.searchSource.get('index').id || config.get('defaultIndex'),
+        interval: 'auto',
+        filters: _.cloneDeep($scope.searchSource.get('filter'))
+      };
+    }
 
     var metaFields = config.get('metaFields');
-
-    var $state = $scope.state = new AppState(stateDefaults);
+    filterManager.init($state);
 
     if (!_.contains(indexPatternList, $state.index)) {
       var reason = 'The index specified in the URL is not a configured pattern. ';
@@ -167,7 +159,7 @@ define(function (require) {
           $scope.fetch();
         });
 
-        $scope.$watch('state.sort', function (sort) {
+        $scope.$watchCollection('state.sort', function (sort) {
           if (!sort) return;
 
           // get the current sort from {key: val} to ["key", "val"];
@@ -178,7 +170,10 @@ define(function (require) {
         });
 
         $scope.$watch('state.filters', function (newFilters, oldFilters) {
-          if (onlyDisabled(newFilters, oldFilters)) return;
+          if (onlyDisabled(newFilters, oldFilters)) {
+            $state.save();
+            return;
+          }
           $scope.fetch();
         });
 
@@ -251,10 +246,15 @@ define(function (require) {
         savedSearch.sort = $scope.state.sort;
 
         return savedSearch.save()
-        .then(function () {
-          notify.info('Saved Data Source "' + savedSearch.title + '"');
-          if (savedSearch.id !== $route.current.params.id) {
-            kbnUrl.change('/discover/{{id}}', { id: savedSearch.id });
+        .then(function (id) {
+          if (id) {
+            notify.info('Saved Data Source "' + savedSearch.title + '"');
+            if (savedSearch.id !== $route.current.params.id) {
+              kbnUrl.change('/discover/{{id}}', { id: savedSearch.id });
+            } else {
+              // Update defaults so that "reload saved query" functions correctly
+              $state.setDefaults(getStateDefaults());
+            }
           }
         });
       })
@@ -262,16 +262,6 @@ define(function (require) {
     };
 
     $scope.opts.fetch = $scope.fetch = function () {
-      // flag used to set the scope based on data from segmentedFetch
-      var resetRows = true;
-
-      function flushResponseData() {
-        $scope.hits = 0;
-        $scope.faliures = [];
-        $scope.rows = [];
-        $scope.rows.fieldCounts = {};
-      }
-
       // ignore requests to fetch before the app inits
       if (!init.complete) return;
 
@@ -285,123 +275,126 @@ define(function (require) {
       .then(setupVisualization)
       .then(function () {
         $state.save();
-
-        var sort = $state.sort;
-        var timeField = $scope.searchSource.get('index').timeFieldName;
-        var totalSize = $scope.size || $scope.opts.sampleSize;
-
-        /**
-         * Basically an emum.
-         *
-         * opts:
-         *   "time" - sorted by the timefield
-         *   "non-time" - explicitly sorted by a non-time field, NOT THE SAME AS `sortBy !== "time"`
-         *   "implicit" - no sorting set, NOT THE SAME AS "non-time"
-         *
-         * @type {String}
-         */
-        var sortBy = (function () {
-          if (!_.isArray(sort)) return 'implicit';
-          else if (sort[0] === timeField) return 'time';
-          else return 'non-time';
-        }());
-
-        var sortFn = null;
-        if (sortBy === 'non-time') {
-          sortFn = new HitSortFn(sort[1]);
-        }
-
-        return segmentedFetch.fetch({
-          totalSize: sortBy === 'non-time' ? false : totalSize,
-          direction: sortBy === 'time' ? sort[1] : 'desc',
-          status: function (status) {
-            $scope.fetchStatus = status;
-          },
-          first: function (resp) {
-            if (!$scope.rows) {
-              flushResponseData();
-            }
-          },
-          each: notify.timed('handle each segment', function (resp, req) {
-            if (resetRows) {
-              if (!resp.hits.total) return;
-              resetRows = false;
-              flushResponseData();
-            }
-
-            if (resp._shards.failed > 0) {
-              $scope.failures = _.union($scope.failures, resp._shards.failures);
-              $scope.failures = _.uniq($scope.failures, false, function (failure) {
-                return failure.index + failure.shard + failure.reason;
-              });
-            }
-
-            $scope.hits += resp.hits.total;
-            var rows = $scope.rows;
-            var counts = rows.fieldCounts;
-
-            // merge the rows and the hits, use a new array to help watchers
-            rows = $scope.rows = rows.concat(resp.hits.hits);
-            rows.fieldCounts = counts;
-
-            if (sortFn) {
-              rows.sort(sortFn);
-              rows = $scope.rows = rows.slice(0, totalSize);
-              counts = rows.fieldCounts = {};
-            }
-
-            $scope.rows.forEach(function (hit) {
-              // skip this work if we have already done it and we are NOT sorting.
-              // ---
-              // when we are sorting results, we need to redo the counts each time because the
-              // "top 500" may change with each response
-              if (hit.$$_formatted && !sortFn) return;
-
-              // Flatten the fields
-              var indexPattern = $scope.searchSource.get('index');
-              hit.$$_flattened = indexPattern.flattenHit(hit);
-
-              var formatAndCount = function (value, name) {
-                // add up the counts for each field name
-                counts[name] = counts[name] ? counts[name] + 1 : 1;
-
-                var defaultFormat = courier.indexPatterns.fieldFormats.defaultByType.string;
-                var field = indexPattern.fields.byName[name];
-                var formatter = (field && field.format) ? field.format : defaultFormat;
-
-                return formatter.convert(value);
-              };
-
-              hit.$$_formatted = _.mapValues(hit.$$_flattened, formatAndCount);
-            });
-
-            // apply the field counts to the field list
-            // We could do this in the field_chooser but it would us to iterate the array again
-            $scope.fields.forEach(function (field) {
-              field.rowCount = counts[field.name] || 0;
-            });
-          }),
-          eachMerged: function (merged) {
-            if (!resetRows) {
-              $scope.mergedEsResp = merged;
-            }
-          }
-        })
-        .finally(function () {
-          if (resetRows) {
-            flushResponseData();
-          }
-          $scope.fetchStatus = false;
-        });
+        return courier.fetch();
       })
       .catch(notify.error);
     };
 
-    // we use a custom fetch mechanism, so tie into the courier's looper
-    courier.searchLooper.add($scope.fetch);
-    $scope.$on('$destroy', function () {
-      courier.searchLooper.remove($scope.fetch);
-    });
+    $scope.searchSource.onBeginSegmentedFetch(function (segmented) {
+
+      function flushResponseData() {
+        $scope.hits = 0;
+        $scope.faliures = [];
+        $scope.rows = [];
+        $scope.rows.fieldCounts = {};
+      }
+
+      if (!$scope.rows) flushResponseData();
+
+      var sort = $state.sort;
+      var timeField = $scope.searchSource.get('index').timeFieldName;
+      var totalSize = $scope.size || $scope.opts.sampleSize;
+
+      /**
+       * Basically an emum.
+       *
+       * opts:
+       *   "time" - sorted by the timefield
+       *   "non-time" - explicitly sorted by a non-time field, NOT THE SAME AS `sortBy !== "time"`
+       *   "implicit" - no sorting set, NOT THE SAME AS "non-time"
+       *
+       * @type {String}
+       */
+      var sortBy = (function () {
+        if (!_.isArray(sort)) return 'implicit';
+        else if (sort[0] === timeField) return 'time';
+        else return 'non-time';
+      }());
+
+      var sortFn = null;
+      if (sortBy === 'non-time') {
+        sortFn = new HitSortFn(sort[1]);
+      }
+
+      $scope.updateTime();
+
+      segmented.setDirection(sortBy === 'time' ? (sort[1] || 'desc') : 'desc');
+
+      // triggered when the status updated
+      segmented.on('status', function (status) {
+        $scope.fetchStatus = status;
+      });
+
+      segmented.on('first', function () {
+        flushResponseData();
+      });
+
+      segmented.on('segment', notify.timed('handle each segment', function (resp) {
+        if (resp._shards.failed > 0) {
+          $scope.failures = _.union($scope.failures, resp._shards.failures);
+          $scope.failures = _.uniq($scope.failures, false, function (failure) {
+            return failure.index + failure.shard + failure.reason;
+          });
+        }
+
+        $scope.hits += resp.hits.total;
+        var rows = $scope.rows;
+        var counts = rows.fieldCounts;
+
+        // merge the rows and the hits, use a new array to help watchers
+        rows = $scope.rows = rows.concat(resp.hits.hits);
+        rows.fieldCounts = counts;
+
+        if (sortFn) {
+          rows.sort(sortFn);
+          rows = $scope.rows = rows.slice(0, totalSize);
+          counts = rows.fieldCounts = {};
+        }
+
+        $scope.rows.forEach(function (hit) {
+          // skip this work if we have already done it and we are NOT sorting.
+          // ---
+          // when we are sorting results, we need to redo the counts each time because the
+          // "top 500" may change with each response
+          if (hit.$$_formatted && !sortFn) return;
+
+          // Flatten the fields
+          var indexPattern = $scope.searchSource.get('index');
+          hit.$$_flattened = indexPattern.flattenHit(hit);
+
+          var formatAndCount = function (value, name) {
+            // add up the counts for each field name
+            counts[name] = counts[name] ? counts[name] + 1 : 1;
+
+            var defaultFormat = courier.indexPatterns.fieldFormats.defaultByType.string;
+            var field = indexPattern.fields.byName[name];
+            var formatter = (field && field.format) ? field.format : defaultFormat;
+
+            return formatter.convert(value);
+          };
+
+          hit.$$_formatted = _.mapValues(hit.$$_flattened, formatAndCount);
+        });
+
+        // apply the field counts to the field list
+        // We could do this in the field_chooser but it would us to iterate the array again
+        $scope.fields.forEach(function (field) {
+          field.rowCount = counts[field.name] || 0;
+        });
+      }));
+
+      segmented.on('mergedSegment', function (merged) {
+        $scope.mergedEsResp = merged;
+      });
+
+      segmented.on('complete', function () {
+        if ($scope.fetchStatus.hitCount === 0) {
+          flushResponseData();
+        }
+
+        $scope.fetchStatus = null;
+      });
+    }).catch(notify.fatal);
 
     $scope.updateTime = function () {
       $scope.timeRange = {
@@ -452,10 +445,11 @@ define(function (require) {
       .size($scope.opts.sampleSize)
       .sort(function () {
         var sort = {};
-        if (_.isArray($state.sort)) {
+        if (_.isArray($state.sort) && $state.sort.length === 2) {
           sort[$state.sort[0]] = $state.sort[1];
-        } else if (indexPattern.timeFieldName) {
-          sort[indexPattern.timeFieldName] = 'desc';
+        } else if ($scope.indexPattern.timeFieldName) {
+          // Use the watcher to set sort in this case, the above `if` will now be true
+          $state.sort = [$scope.indexPattern.timeFieldName, 'desc'];
         } else {
           sort._score = 'desc';
         }
@@ -469,38 +463,25 @@ define(function (require) {
       })
       .set('filter', $state.filters || []);
 
-      // get the current indexPattern
-      var indexPattern = $scope.indexPattern = $scope.searchSource.get('index');
-
-      // if indexPattern exists, but $scope.opts.index doesn't, or the opposite, or if indexPattern's id
-      // is not equal to the $scope.opts.index then either clean or
-      if (
-        Boolean($scope.opts.index) !== Boolean(indexPattern)
-        || (indexPattern && indexPattern.id) !== $scope.opts.index
-      ) {
-        $state.index = $scope.opts.index = $scope.opts.index || config.get('defaultIndex');
-        indexPattern = courier.indexPatterns.get($scope.opts.index);
-      }
-
-      $scope.opts.timefield = indexPattern.timeFieldName;
-
-      return Promise.cast(indexPattern)
-      .then(function (indexPattern) {
-        $scope.opts.timefield = indexPattern.timeFieldName;
+      $state.index = $scope.opts.index = $scope.opts.index || config.get('defaultIndex');
+      return courier.indexPatterns.get($scope.opts.index).then(function (pattern) {
+        $scope.indexPattern = pattern;
+        $scope.opts.timefield = $scope.indexPattern.timeFieldName;
 
         // did we update the index pattern?
-        var refresh = indexPattern !== $scope.searchSource.get('index');
+        var refresh = $scope.indexPattern !== $scope.searchSource.get('index');
 
         // make sure the pattern is set on the "leaf" searchSource, not just the root
-        $scope.searchSource.set('index', indexPattern);
+        $scope.searchSource.set('index', pattern);
 
         if (refresh) {
-          $scope.indexPattern = indexPattern;
+          delete $state.sort;
           delete $scope.fields;
           delete $scope.columns;
           setFields();
         }
       });
+
     };
 
     // This is a hacky optimization for comparing the contents of a large array to a short one.
@@ -545,61 +526,9 @@ define(function (require) {
 
     // TODO: On array fields, negating does not negate the combination, rather all terms
     $scope.filterQuery = function (field, values, operation) {
-      values = _.isArray(values) ? values : [values];
-
       var indexPattern = $scope.searchSource.get('index');
       indexPattern.popularizeField(field, 1);
-      var negate = operation === '-';
-
-      // Grap the filters from the searchSource and ensure it's an array
-      var filters = _.flatten([$state.filters], true);
-
-      _.each(values, function (value) {
-        var existing = _.find(filters, function (filter) {
-          if (!filter) return;
-
-          if (field === '_exists_' && filter.exists) {
-            return filter.exists.field === value;
-          }
-
-          if (field === '_missing_' && filter.missing) {
-            return filter.missing.field === value;
-          }
-
-          if (filter.query) {
-            return filter.query.match[field] && filter.query.match[field].query === value;
-          }
-        });
-
-        if (existing) {
-          if (existing.meta.negate !== negate) existing.meta.negate = negate;
-          return;
-        }
-
-        switch (field) {
-        case '_exists_':
-          filters.push({
-            exists: {
-              field: value
-            }
-          });
-          break;
-        case '_missing_':
-          filters.push({
-            missing: {
-              field: value
-            }
-          });
-          break;
-        default:
-          var filter = { meta: { negate: negate, index: $state.index }, query: { match: {} } };
-          filter.query.match[field] = { query: value, type: 'phrase' };
-          filters.push(filter);
-          break;
-        }
-      });
-
-      $state.filters = filters;
+      filterManager.add(field, values, operation, $state.index);
     };
 
     $scope.toggleField = function (name) {
@@ -685,7 +614,7 @@ define(function (require) {
       // TODO: a legit way to update the index pattern
       $scope.vis = new Vis($scope.searchSource.get('index'), {
         type: 'histogram',
-        vislibParams: {
+        params: {
           addLegend: false,
         },
         listeners: {

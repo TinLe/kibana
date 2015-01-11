@@ -39,13 +39,17 @@ define(function (require) {
       this.labels;
 
       if (this.type === 'series') {
-        this.labels = getLabels(data);
+        if (getLabels(data).length === 1 && getLabels(data)[0] === '') {
+          this.labels = [(this.get('yAxisLabel'))];
+        } else {
+          this.labels = getLabels(data);
+        }
       } else if (this.type === 'slices') {
         this.labels = this.pieNames();
       }
 
       this.color = this.labels ? color(this.labels) : undefined;
-      
+
       this._normalizeOrdered();
 
       this._attr = _.defaults(attr || {}, {
@@ -67,6 +71,8 @@ define(function (require) {
           type = 'series';
         } else if (obj.slices) {
           type = 'slices';
+        } else if (obj.geoJSON) {
+          type = 'goeJSON';
         }
       });
 
@@ -459,7 +465,7 @@ define(function (require) {
      * series.rows is an array of arrays
      * each row is an array of values
      * last value in row array is bucket count
-     * 
+     *
      * @method mapDataExtents
      * @param series {Array} Array of data objects
      * @returns {Array} min and max values

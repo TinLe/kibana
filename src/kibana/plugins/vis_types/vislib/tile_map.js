@@ -8,9 +8,12 @@ define(function (require) {
       name: 'tile_map',
       title: 'Tile map',
       icon: 'fa-map-marker',
+      description: 'Your source for geographic maps. Requires an elasticsearch geo_point field. More specifically, a field ' +
+       'that is mapped as type:geo_point with latitude and longitude coordinates.',
       params: {
         defaults: {
-          mapType: 'Shaded Circle Markers'
+          mapType: 'Shaded Circle Markers',
+          isDesaturated: true
         },
         mapTypes: ['Shaded Circle Markers', 'Scaled Circle Markers'],
         editor: require('text!plugins/vis_types/vislib/editors/tile_map.html')

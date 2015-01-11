@@ -2,6 +2,11 @@ define(function (require) {
   var _ = require('lodash');
 
   return {
+    'query:queryString:options': {
+      value: '{ "analyze_wildcard": true }',
+      description: 'Options for the lucene query string parser',
+      type: 'json'
+    },
     'dateFormat': {
       value: 'MMMM Do YYYY, HH:mm:ss.SSS',
       description: 'When displaying a pretty formatted date, use this format',
@@ -21,6 +26,10 @@ define(function (require) {
     'fields:popularLimit': {
       value: 10,
       description: 'The top N most popular fields to show',
+    },
+    'format:numberPrecision': {
+      value: 3,
+      description: 'Round numbers to this many decimal places',
     },
     'histogram:barTarget': {
       value: 50,

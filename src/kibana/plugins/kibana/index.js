@@ -14,6 +14,7 @@ define(function (require) {
   require('components/tooltip/tooltip');
   require('components/style_compile/style_compile');
   require('components/watch_multi');
+  require('components/bind');
   require('components/listen');
   require('directives/click_focus');
   require('directives/info');
@@ -26,10 +27,12 @@ define(function (require) {
 
   // ensure that the kibana module requires ui.bootstrap
   require('modules').get('kibana', ['ui.bootstrap'])
-  .directive('kibana', function ($rootScope, $injector, Promise, config, kbnSetup) {
+  .directive('kibana', function (Private, $rootScope, $injector, Promise, config, kbnSetup) {
     return {
       template: require('text!plugins/kibana/kibana.html'),
+      controllerAs: 'kibana',
       controller: function ($scope) {
+        var _ = require('lodash');
         var self = $rootScope.kibana = this;
         var notify = new Notifier({ location: 'Kibana' });
 

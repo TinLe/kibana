@@ -1,7 +1,6 @@
 define(function (require) {
   return function SavedObjectFactory(es, configFile, Promise, Private, Notifier, indexPatterns) {
     var errors = require('errors');
-    var angular = require('angular');
     var _ = require('lodash');
     var slugifyId = require('utils/slugify_id');
 
@@ -125,7 +124,13 @@ define(function (require) {
                 try {
                   state = JSON.parse(meta.searchSourceJSON);
                 } catch (e) {}
-                self.searchSource.set(state);
+
+                var oldState = self.searchSource.toJSON();
+                var fnProps = _.transform(oldState, function (dynamic, val, name) {
+                  if (_.isFunction(val)) dynamic[name] = val;
+                }, {});
+
+                self.searchSource.set(_.defaults(state, fnProps));
               }
             })
             .then(hydrateIndexPattern)
@@ -211,18 +216,23 @@ define(function (require) {
       };
 
       self.saveSource = function (source) {
-        return docSource.doIndex(source)
-        .then(function (id) {
+        var finish = function (id) {
           self.id = id;
-        })
-        .then(function () {
           return es.indices.refresh({
             index: configFile.kibana_index
+          })
+          .then(function () {
+            return self.id;
           });
-        })
-        .then(function () {
-          // ensure that the object has the potentially new id
-          return self.id;
+        };
+        return docSource.doCreate(source)
+        .then(finish)
+        .catch(function (err) {
+          var confirmMessage = 'Are you sure you want to overwrite this?';
+          if (_.deepGet(err, 'origError.status') === 409 && window.confirm(confirmMessage)) {
+            return docSource.doIndex(source).then(finish);
+          }
+          return Promise.resolve(false);
         });
       };
 
@@ -232,8 +242,10 @@ define(function (require) {
        * @return {undefined}
        */
       self.destroy = function () {
-        docSource.cancelPending();
-        if (self.searchSource) self.searchSource.cancelPending();
+        docSource.cancelQueued();
+        if (self.searchSource) {
+          self.searchSource.cancelQueued();
+        }
       };
 
       /**

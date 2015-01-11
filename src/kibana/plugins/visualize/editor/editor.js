@@ -1,4 +1,5 @@
 define(function (require) {
+  var _ = require('lodash');
   require('plugins/visualize/saved_visualizations/saved_visualizations');
   require('plugins/visualize/editor/sidebar');
   require('plugins/visualize/editor/agg_filter');
@@ -14,8 +15,10 @@ define(function (require) {
   .when('/visualize/create', {
     template: require('text!plugins/visualize/editor/editor.html'),
     resolve: {
-      savedVis: function (savedVisualizations, courier, $route) {
-        if (!$route.current.params.indexPattern && !$route.current.params.savedSearchId) {
+      savedVis: function (savedVisualizations, courier, $route, Private) {
+        var visTypes = Private(require('registry/vis_types'));
+        var visType = _.find(visTypes, {name: $route.current.params.type});
+        if (visType.requiresSearch && !$route.current.params.indexPattern && !$route.current.params.savedSearchId) {
           throw new Error('You must provide either an indexPattern or a savedSearchId');
         }
 
@@ -77,9 +80,10 @@ define(function (require) {
       docTitle.change(savedVis.title);
     }
 
-    var $state = (function initState() {
+    var $state = $scope.$state = (function initState() {
       var savedVisState = vis.getState();
       var stateDefaults = {
+        linked: !!savedVis.savedSearchId,
         query: searchSource.getOwn('query') || {query_string: {query: '*'}},
         filters: searchSource.getOwn('filter') || [],
         vis: savedVisState
@@ -113,18 +117,6 @@ define(function (require) {
       $scope.toggleSave = _.bindKey(configTemplate, 'toggle', 'save');
       $scope.toggleLoad = _.bindKey(configTemplate, 'toggle', 'load');
 
-      $scope.linked = !!savedVis.savedSearchId;
-      if ($scope.linked) {
-        // possibly left over state from unsaved unlinking
-        delete $state.query;
-        $state.filters = searchSource.getOwn('filter');
-      } else {
-        $state.query = $state.query || searchSource.get('query');
-        courier.setRootSearchSource(searchSource);
-        searchSource.set('query', $state.query);
-        searchSource.set('filter', $state.filters);
-      }
-
       editableVis.listeners.click = vis.listeners.click = filterBarClickHandler($state);
       editableVis.listeners.brush = vis.listeners.brush = brushEvent;
 
@@ -135,6 +127,17 @@ define(function (require) {
         return editableVis.getState();
       }, function (newState) {
         editableVis.dirty = !angular.equals(newState, vis.getState());
+
+        $scope.responseValueAggs = null;
+        try {
+          $scope.responseValueAggs = editableVis.aggs.getResponseAggs().filter(function (agg) {
+            return _.deepGet(agg, 'schema.group') === 'metrics';
+          });
+        } catch (e) {
+          // this can fail when the agg.type is changed but the
+          // params have not been set yet. watcher will trigger again
+          // when the params update
+        }
       }, true);
 
       $state.replace();
@@ -144,11 +147,20 @@ define(function (require) {
       });
 
       $scope.$watch('state.filters', function (newFilters, oldFilters) {
-        if (onlyDisabled(newFilters, oldFilters)) return;
+        if (onlyDisabled(newFilters, oldFilters)) {
+          $state.save();
+          return;
+        }
         if (newFilters !== oldFilters) $scope.fetch();
       });
 
       $scope.$listen($state, 'fetch_with_changes', function (keys) {
+        if (_.contains(keys, 'linked') && $state.linked === true) {
+          // abort and reload route
+          $route.reload();
+          return;
+        }
+
         if (_.contains(keys, 'vis')) {
           // only update when we need to, otherwise colors change and we
           // risk loosing an in-progress result
@@ -157,7 +169,7 @@ define(function (require) {
         }
 
         // we use state to track query, must write before we fetch
-        if ($state.query && !$scope.linked) {
+        if ($state.query && !$state.linked) {
           searchSource.set('query', $state.query);
         } else {
           searchSource.set('query', null);
@@ -170,7 +182,6 @@ define(function (require) {
         }
 
         $scope.fetch();
-
       });
 
       $scope.$listen(timefilter, 'update', _.bindKey($scope, 'fetch'));
@@ -187,8 +198,8 @@ define(function (require) {
     $scope.fetch = function () {
       $state.save();
       searchSource.set('filter', $state.filters);
-      if (!$scope.linked) searchSource.set('query', $state.query);
-      searchSource.fetch();
+      if (!$state.linked) searchSource.set('query', $state.query);
+      if ($scope.vis.type.requiresSearch) courier.fetch();
     };
 
 
@@ -201,13 +212,13 @@ define(function (require) {
       savedVis.visState = $state.vis;
 
       savedVis.save()
-      .then(function () {
+      .then(function (id) {
+        if (id) {
+          notify.info('Saved Visualization "' + savedVis.title + '"');
+          if (savedVis.id === $route.current.params.id) return;
+          kbnUrl.change('/visualize/edit/{{id}}', {id: savedVis.id});
+        }
         configTemplate.close('save');
-        notify.info('Saved Visualization "' + savedVis.title + '"');
-
-        if (savedVis.id === $route.current.params.id) return;
-
-        kbnUrl.change('/visualize/edit/{{id}}', {id: savedVis.id});
       }, notify.fatal);
     };
 
@@ -221,11 +232,14 @@ define(function (require) {
     };
 
     $scope.unlink = function () {
+      if (!$state.linked) return;
+
+      $state.linked = false;
       var parent = searchSource.getParent(true);
       var parentsParent = parent.getParent(true);
 
       // display unlinking for 2 seconds, unless it is double clicked
-      $scope.unlinking = $timeout($scope.doneUnlinking, 2000);
+      $scope.unlinking = $timeout($scope.clearUnlinking, 2000);
 
       delete savedVis.savedSearchId;
       parent.set('filter', _.union(searchSource.getOwn('filter'), parent.getOwn('filter')));
@@ -240,9 +254,11 @@ define(function (require) {
       searchSource.inherits(parentsParent);
     };
 
-    $scope.doneUnlinking = function () {
-      $scope.unlinking = clearTimeout($scope.unlinking);
-      $scope.linked = false;
+    $scope.clearUnlinking = function () {
+      if ($scope.unlinking) {
+        $timeout.cancel($scope.unlinking);
+        $scope.unlinking = null;
+      }
     };
 
     function transferVisState(fromVis, toVis, fetch) {

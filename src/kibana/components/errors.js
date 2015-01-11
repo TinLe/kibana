@@ -52,6 +52,8 @@ define(function (require) {
    * @param {Object} resp - optional HTTP response
    */
   errors.RequestFailure = function RequestFailure(err, resp) {
+    err = err || false;
+
     KbnError.call(this,
       'Request to Elasticsearch failed: ' + JSON.stringify(resp || err.message),
       errors.RequestFailure);
@@ -207,12 +209,20 @@ define(function (require) {
    * than the required number of data points
    * @param {String} message - the message to provide with the error
    */
-  errors.NotEnoughData = function NotEnoughData() {
-    KbnError.call(this,
-      'There are not enough data points to render this chart',
-      errors.NotEnoughData);
+  errors.NotEnoughData = function NotEnoughData(message) {
+    KbnError.call(this, message, errors.NotEnoughData);
   };
   inherits(errors.NotEnoughData, KbnError);
+
+  /**
+   * error thrown when no results are returned from an elasticsearch query
+   */
+  errors.NoResults = function NoResults() {
+    KbnError.call(this,
+    'No results found',
+    errors.NoResults);
+  };
+  inherits(errors.NoResults, KbnError);
 
   return errors;
 });
