@@ -14,8 +14,8 @@ require.config({
     'angular-elastic': 'bower_components/angular-elastic/elastic',
     'angular-route': 'bower_components/angular-route/angular-route',
     'angular-ui-ace': 'bower_components/angular-ui-ace/ui-ace',
-    'angular-ui-select': 'bower_components/angular-ui-select/dist/select',
     ace: 'bower_components/ace-builds/src-noconflict/ace',
+    'ace-json': 'bower_components/ace-builds/src-noconflict/mode-json',
     angular: 'bower_components/angular/angular',
     async: 'bower_components/async/lib/async',
     bower_components: 'bower_components',
@@ -34,7 +34,8 @@ require.config({
     'ng-clip': 'bower_components/ng-clip/src/ngClip',
     text: 'bower_components/requirejs-text/text',
     zeroclipboard: 'bower_components/zeroclipboard/dist/ZeroClipboard',
-    marked: 'bower_components/marked/lib/marked'
+    marked: 'bower_components/marked/lib/marked',
+    numeral: 'bower_components/numeral/numeral'
   },
   shim: {
     angular: {
@@ -46,8 +47,8 @@ require.config({
     'elasticsearch': ['angular'],
     'angular-bootstrap': ['angular'],
     'angular-bindonce': ['angular'],
-    'angular-ui-ace': ['angular', 'ace'],
-    'angular-ui-select': ['css!bower_components/angular-ui-select/dist/select.css'],
+    'ace-json': ['ace'],
+    'angular-ui-ace': ['angular', 'ace', 'ace-json'],
     'ng-clip': ['angular', 'zeroclipboard'],
     inflection: {
       exports: 'inflection'

@@ -14,15 +14,16 @@
 <button
   ng-if="stats.max > stats.count"
   type="button"
+  ng-init="add.form = stats.count < 1 ? !add.form : add.form"
   ng-click="add.form = !add.form"
   class="vis-editor-agg-wide-btn btn btn-xs btn-default" >
 
   <div ng-if="!add.form">
     <span ng-if="groupName !== 'buckets' || !stats.count">
-      <i class="fa fa-plus"></i> Add Aggregation
+      <i aria-hidden="true" class="fa fa-plus"></i> Add Aggregation
     </span>
     <span ng-if="groupName === 'buckets' && stats.count > 0">
-      <i class="fa fa-code-fork"></i> Add Sub Aggregation
+      <i aria-hidden="true" class="fa fa-code-fork"></i> Add Sub Aggregation
     </span>
   </div>
   <span ng-if="add.form">cancel</span>
