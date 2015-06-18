@@ -1,14 +1,15 @@
 define(function (require) {
-
   return function SearchSourceFactory(Promise, Private) {
     var _ = require('lodash');
     var SourceAbstract = Private(require('components/courier/data_source/_abstract'));
     var SearchRequest = Private(require('components/courier/fetch/request/search'));
     var SegmentedRequest = Private(require('components/courier/fetch/request/segmented'));
+    var searchStrategy = Private(require('components/courier/fetch/strategy/search'));
+    var normalizeSortRequest = Private(require('components/courier/data_source/_normalize_sort_request'));
 
     _(SearchSource).inherits(SourceAbstract);
     function SearchSource(initialState) {
-      SearchSource.Super.call(this, initialState);
+      SearchSource.Super.call(this, initialState, searchStrategy);
     }
 
     // expose a ready state for the route setup to read
@@ -90,37 +91,6 @@ define(function (require) {
      */
     SearchSource.prototype.enable = function () {
       this._fetchDisabled = false;
-    };
-
-    /**
-     * Special reader function for sort, which will transform the sort syntax into a simple
-     * map of `field: dir`
-     */
-    SearchSource.prototype.getNormalizedSort = function () {
-      var sort = this.get('sort');
-      if (!sort) return;
-
-      var normal = {};
-
-      (function read(lvl) {
-        if (_.isString(lvl)) {
-          normal[lvl] = 'asc';
-        }
-        else if (_.isArray(lvl)) {
-          _.forEach(lvl, read);
-        }
-        else if (_.isObject(lvl)) {
-          _.forOwn(lvl, function (dir, field) {
-            if (_.isObject(dir)) {
-              normal[field] = dir.dir || 'asc';
-            } else {
-              normal[field] = String(dir);
-            }
-          });
-        }
-      }(sort));
-
-      return normal;
     };
 
     SearchSource.prototype.onBeginSegmentedFetch = function (initFunction) {
@@ -205,6 +175,9 @@ define(function (require) {
         return;
       case 'source':
         key = '_source';
+        /* fall through */
+      case 'sort':
+        val = normalizeSortRequest(val, this.get('index'));
         /* fall through */
       default:
         state.body = state.body || {};
