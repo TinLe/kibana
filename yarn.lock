@@ -2980,7 +2980,6 @@
 
 "@kbn/i18n-react@link:bazel-bin/packages/kbn-i18n-react":
   version "0.0.0"
-  uid ""
 
 "@kbn/i18n@link:bazel-bin/packages/kbn-i18n":
   version "0.0.0"
@@ -5738,67 +5737,51 @@
 
 "@types/kbn__alerts@link:bazel-bin/packages/kbn-alerts/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__analytics@link:bazel-bin/packages/kbn-analytics/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__apm-config-loader@link:bazel-bin/packages/kbn-apm-config-loader/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__apm-utils@link:bazel-bin/packages/kbn-apm-utils/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__cli-dev-mode@link:bazel-bin/packages/kbn-cli-dev-mode/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__config-schema@link:bazel-bin/packages/kbn-config-schema/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__config@link:bazel-bin/packages/kbn-config/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__crypto@link:bazel-bin/packages/kbn-crypto/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__dev-utils@link:bazel-bin/packages/kbn-dev-utils/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__docs-utils@link:bazel-bin/packages/kbn-docs-utils/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__es-archiver@link:bazel-bin/packages/kbn-es-archiver/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__es-query@link:bazel-bin/packages/kbn-es-query/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__field-types@link:bazel-bin/packages/kbn-field-types/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__i18n-react@link:bazel-bin/packages/kbn-i18n-react/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__i18n@link:bazel-bin/packages/kbn-i18n/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/kbn__mapbox-gl@link:bazel-bin/packages/kbn-mapbox-gl/npm_module_types":
   version "0.0.0"
-  uid ""
 
 "@types/keyv@*":
   version "3.1.1"
@@ -21350,10 +21333,10 @@ parse-json@^5.0.0:
     json-parse-better-errors "^1.0.1"
     lines-and-columns "^1.1.6"
 
-parse-link-header@^1.0.1:
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/parse-link-header/-/parse-link-header-1.0.1.tgz#bedfe0d2118aeb84be75e7b025419ec8a61140a7"
-  integrity sha1-vt/g0hGK64S+deewJUGeyKYRQKc=
+parse-link-header@^2.0.0:
+  version "2.0.0"
+  resolved "https://registry.yarnpkg.com/parse-link-header/-/parse-link-header-2.0.0.tgz#949353e284f8aa01f2ac857a98f692b57733f6b7"
+  integrity sha512-xjU87V0VyHZybn2RrCX5TIFGxTVZE6zqqZWMPlIKiSKuWh/X5WZdt+w1Ki1nXB+8L/KtL+nZ4iq+sfI6MrhhMw==
   dependencies:
     xtend "~4.0.1"
 
@@ -22266,12 +22249,6 @@ postcss-value-parser@^4.0.0, postcss-value-parser@^4.0.2, postcss-value-parser@^
   resolved "https://registry.yarnpkg.com/postcss-value-parser/-/postcss-value-parser-4.1.0.tgz#443f6a20ced6481a2bda4fa8532a6e55d789a2cb"
   integrity sha512-97DXOFbQJhk71ne5/Mt6cOu6yxsSfM0QGQyl0L25Gca4yGWEGJaig7l7gbCX623VqTBNGLRLaVUCnNkcedlRSQ==
 
-<<<<<<< HEAD
-postcss@^7.0.0, postcss@^7.0.1, postcss@^7.0.14, postcss@^7.0.16, postcss@^7.0.2, postcss@^7.0.21, postcss@^7.0.26, postcss@^7.0.27, postcss@^7.0.32, postcss@^7.0.35, postcss@^7.0.36, postcss@^7.0.5, postcss@^7.0.6:
-  version "7.0.36"
-  resolved "https://registry.yarnpkg.com/postcss/-/postcss-7.0.36.tgz#056f8cffa939662a8f5905950c07d5285644dfcb"
-  integrity sha512-BebJSIUMwJHRH0HAQoxN4u1CN86glsrwsW0q7T+/m44eXOUAxSNdHRkNZPYz5vVUbg17hFgOQDE7fZk7li3pZw==
-=======
 postcss@^7.0.0, postcss@^7.0.14, postcss@^7.0.16, postcss@^7.0.2, postcss@^7.0.21, postcss@^7.0.26, postcss@^7.0.32, postcss@^7.0.5, postcss@^7.0.6:
   version "7.0.32"
   resolved "https://registry.yarnpkg.com/postcss/-/postcss-7.0.32.tgz#4310d6ee347053da3433db2be492883d62cec59d"
@@ -22285,7 +22262,6 @@ postcss@^7.0.1, postcss@^7.0.27, postcss@^7.0.35, postcss@^7.0.36:
   version "7.0.39"
   resolved "https://registry.yarnpkg.com/postcss/-/postcss-7.0.39.tgz#9624375d965630e2e1f2c02a935c82a59cb48309"
   integrity sha512-yioayjNbHn6z1/Bywyb2Y4s3yvDAeXGOyxqD+LnVOinq6Mdmd++SW2wUNVzavyyHxd6+DxzWGIuosg6P1Rj8uA==
->>>>>>> [storybook] upgrade to 6.3.x (#119498)
   dependencies:
     picocolors "^0.2.1"
     source-map "^0.6.1"
