@@ -3,9 +3,9 @@
 
 
 "@adobe/css-tools@^4.0.1":
-  version "4.0.1"
-  resolved "https://registry.yarnpkg.com/@adobe/css-tools/-/css-tools-4.0.1.tgz#b38b444ad3aa5fedbb15f2f746dcd934226a12dd"
-  integrity sha512-+u76oB43nOHrF4DDWRLWDCtci7f3QJoEBigemIdIeTi1ODqjx6Tad9NCVnPRwewWlKkVab5PlK8DCtPTyX7S8g==
+  version "4.3.3"
+  resolved "https://registry.yarnpkg.com/@adobe/css-tools/-/css-tools-4.3.3.tgz#90749bde8b89cd41764224f5aac29cd4138f75ff"
+  integrity sha512-rE0Pygv0sEZ4vBWHlAgJLGDU7Pm8xoO6p3wsEceb7GYAjScrOHpEo8KK/eVkAcnSM+slAEtXjA2JpdjLp4fJQQ==
 
 "@ampproject/remapping@^2.2.0":
   version "2.2.0"
@@ -2785,8 +2785,7 @@
   version "0.0.0"
 
 "@kbn/alerts-as-data-utils@link:packages/kbn-alerts-as-data-utils":
-  version "0.0.0"
-  uid ""
+  version "1.0.0"
 
 "@kbn/alerts-restricted-fixtures-plugin@link:x-pack/test/alerting_api_integration/common/plugins/alerts_restricted":
   version "1.0.0"
@@ -2982,7 +2981,6 @@
 
 "@kbn/content-management-examples-plugin@link:examples/content_management_examples":
   version "0.0.0"
-  uid ""
 
 "@kbn/content-management-plugin@link:src/plugins/content_management":
   version "0.0.0"
@@ -3579,8 +3577,7 @@
   version "1.0.0"
 
 "@kbn/core-version-http-server@link:packages/core/versioning/core-version-http-server":
-  version "0.0.0"
-  uid ""
+  version "1.0.0"
 
 "@kbn/core@link:src/core":
   version "0.0.0"
@@ -3748,8 +3745,7 @@
   version "0.0.0"
 
 "@kbn/expandable-flyout@link:packages/kbn-expandable-flyout":
-  version "0.0.0"
-  uid ""
+  version "1.0.0"
 
 "@kbn/expect@link:packages/kbn-expect":
   version "1.0.0"
@@ -4334,8 +4330,7 @@
   version "1.0.0"
 
 "@kbn/securitysolution-grouping@link:packages/kbn-securitysolution-grouping":
-  version "0.0.0"
-  uid ""
+  version "1.0.0"
 
 "@kbn/securitysolution-hook-utils@link:packages/kbn-securitysolution-hook-utils":
   version "1.0.0"
