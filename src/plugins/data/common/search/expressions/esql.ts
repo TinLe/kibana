@@ -9,24 +9,20 @@
 import type { KibanaRequest } from '@kbn/core/server';
 import { esFieldTypeToKibanaFieldType } from '@kbn/field-types';
 import { i18n } from '@kbn/i18n';
+import type { IKibanaSearchResponse, IKibanaSearchRequest } from '@kbn/search-types';
 import type { Datatable, ExpressionFunctionDefinition } from '@kbn/expressions-plugin/common';
 import { RequestAdapter } from '@kbn/inspector-plugin/common';
+import { getEarliestLatestParams } from '@kbn/esql-utils';
 
 import { zipObject } from 'lodash';
 import { Observable, defer, throwError } from 'rxjs';
 import { catchError, map, switchMap, tap } from 'rxjs';
 import { buildEsQuery } from '@kbn/es-query';
-import type { ESQLSearchReponse, ESQLSearchParams } from '@kbn/es-types';
-import { ESQL_LATEST_VERSION } from '@kbn/esql-utils';
+import type { ISearchGeneric } from '@kbn/search-types';
+import type { ESQLSearchResponse, ESQLSearchParams } from '@kbn/es-types';
 import { getEsQueryConfig } from '../../es_query';
 import { getTime } from '../../query';
-import {
-  ESQL_ASYNC_SEARCH_STRATEGY,
-  IKibanaSearchRequest,
-  ISearchGeneric,
-  KibanaContext,
-} from '..';
-import { IKibanaSearchResponse } from '../types';
+import { ESQL_ASYNC_SEARCH_STRATEGY, KibanaContext, ESQL_TABLE_TYPE } from '..';
 import { UiSettingsCommon } from '../..';
 
 type Input = KibanaContext | null;
@@ -40,6 +36,12 @@ interface Arguments {
   // timezone?: string;
   timeField?: string;
   locale?: string;
+
+  /**
+   * Requests' meta for showing in Inspector
+   */
+  titleForInspector?: string;
+  descriptionForInspector?: string;
 }
 
 export type EsqlExpressionFunctionDefinition = ExpressionFunctionDefinition<
@@ -73,6 +75,7 @@ export const getEsqlFn = ({ getStartDependencies }: EsqlFnArguments) => {
     name: 'esql',
     type: 'datatable',
     inputTypes: ['kibana_context', 'null'],
+    allowCache: true,
     help: i18n.translate('data.search.esql.help', {
       defaultMessage: 'Queries Elasticsearch using ES|QL.',
     }),
@@ -107,10 +110,24 @@ export const getEsqlFn = ({ getStartDependencies }: EsqlFnArguments) => {
           defaultMessage: 'The locale to use.',
         }),
       },
+      titleForInspector: {
+        aliases: ['titleForInspector'],
+        types: ['string'],
+        help: i18n.translate('data.search.esql.titleForInspector.help', {
+          defaultMessage: 'The title to show in Inspector.',
+        }),
+      },
+      descriptionForInspector: {
+        aliases: ['descriptionForInspector'],
+        types: ['string'],
+        help: i18n.translate('data.search.esql.descriptionForInspector.help', {
+          defaultMessage: 'The description to show in Inspector.',
+        }),
+      },
     },
     fn(
       input,
-      { query, /* timezone, */ timeField, locale },
+      { query, /* timezone, */ timeField, locale, titleForInspector, descriptionForInspector },
       { abortSignal, inspectorAdapters, getKibanaRequest }
     ) {
       return defer(() =>
@@ -131,12 +148,18 @@ export const getEsqlFn = ({ getStartDependencies }: EsqlFnArguments) => {
             query,
             // time_zone: timezone,
             locale,
-            version: ESQL_LATEST_VERSION,
           };
           if (input) {
             const esQueryConfigs = getEsQueryConfig(
               uiSettings as Parameters<typeof getEsQueryConfig>[0]
             );
+
+            const namedParams = getEarliestLatestParams(query, input.timeRange);
+
+            if (namedParams.length) {
+              params.params = namedParams;
+            }
+
             const timeFilter =
               input.timeRange &&
               getTime(undefined, input.timeRange, {
@@ -158,14 +181,17 @@ export const getEsqlFn = ({ getStartDependencies }: EsqlFnArguments) => {
             }
 
             const request = inspectorAdapters.requests.start(
-              i18n.translate('data.search.dataRequest.title', {
-                defaultMessage: 'Data',
-              }),
-              {
-                description: i18n.translate('data.search.es_search.dataRequest.description', {
-                  defaultMessage:
-                    'This request queries Elasticsearch to fetch the data for the visualization.',
+              titleForInspector ??
+                i18n.translate('data.search.dataRequest.title', {
+                  defaultMessage: 'Data',
                 }),
+              {
+                description:
+                  descriptionForInspector ??
+                  i18n.translate('data.search.es_search.dataRequest.description', {
+                    defaultMessage:
+                      'This request queries Elasticsearch to fetch the data for the visualization.',
+                  }),
               },
               startTime
             );
@@ -176,7 +202,7 @@ export const getEsqlFn = ({ getStartDependencies }: EsqlFnArguments) => {
 
           return search<
             IKibanaSearchRequest<ESQLSearchParams>,
-            IKibanaSearchResponse<ESQLSearchReponse>
+            IKibanaSearchResponse<ESQLSearchResponse>
           >(
             { params: { ...params, dropNullColumns: true } },
             { abortSignal, strategy: ESQL_ASYNC_SEARCH_STRATEGY }
@@ -250,7 +276,7 @@ export const getEsqlFn = ({ getStartDependencies }: EsqlFnArguments) => {
           return {
             type: 'datatable',
             meta: {
-              type: 'es_ql',
+              type: ESQL_TABLE_TYPE,
             },
             columns: allColumns,
             rows,

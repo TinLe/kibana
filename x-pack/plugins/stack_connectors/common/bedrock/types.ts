@@ -15,7 +15,8 @@ import {
   RunActionResponseSchema,
   InvokeAIActionParamsSchema,
   InvokeAIActionResponseSchema,
-  StreamActionParamsSchema,
+  InvokeAIRawActionParamsSchema,
+  InvokeAIRawActionResponseSchema,
   StreamingResponseSchema,
   RunApiLatestResponseSchema,
 } from './schema';
@@ -25,9 +26,10 @@ export type Secrets = TypeOf<typeof SecretsSchema>;
 export type RunActionParams = TypeOf<typeof RunActionParamsSchema>;
 export type InvokeAIActionParams = TypeOf<typeof InvokeAIActionParamsSchema>;
 export type InvokeAIActionResponse = TypeOf<typeof InvokeAIActionResponseSchema>;
+export type InvokeAIRawActionParams = TypeOf<typeof InvokeAIRawActionParamsSchema>;
+export type InvokeAIRawActionResponse = TypeOf<typeof InvokeAIRawActionResponseSchema>;
 export type RunApiLatestResponse = TypeOf<typeof RunApiLatestResponseSchema>;
 export type RunActionResponse = TypeOf<typeof RunActionResponseSchema>;
-export type StreamActionParams = TypeOf<typeof StreamActionParamsSchema>;
 export type StreamingResponse = TypeOf<typeof StreamingResponseSchema>;
 export type DashboardActionParams = TypeOf<typeof DashboardActionParamsSchema>;
 export type DashboardActionResponse = TypeOf<typeof DashboardActionResponseSchema>;

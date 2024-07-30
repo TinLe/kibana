@@ -85,7 +85,7 @@ describe('helpers', () => {
     const isAssistantEnabled = true;
     it('when no conversation history, returns the welcome conversation', () => {
       const result = getBlockBotConversation(defaultConversation, isAssistantEnabled);
-      expect(result.messages.length).toEqual(3);
+      expect(result.messages.length).toEqual(0);
     });
     it('returns a conversation history with the welcome conversation appended', () => {
       const conversation = {
@@ -103,7 +103,7 @@ describe('helpers', () => {
         ],
       };
       const result = getBlockBotConversation(conversation, isAssistantEnabled);
-      expect(result.messages.length).toEqual(4);
+      expect(result.messages.length).toEqual(1);
     });
   });
 
@@ -144,7 +144,7 @@ describe('helpers', () => {
       expect(result).toBe(connectors[0]);
     });
 
-    it('should return undefined if there are multiple connectors', () => {
+    it('should return the connector id if there are multiple connectors', () => {
       const connectors: AIConnector[] = [
         defaultConnector,
         {
@@ -158,31 +158,14 @@ describe('helpers', () => {
         },
       ];
       const result = getDefaultConnector(connectors);
-      expect(result).toBeUndefined();
+      expect(result).toBe(connectors[0]);
     });
   });
 
   describe('getOptionalRequestParams', () => {
-    it('should return an empty object when alerts is false', () => {
-      const params = {
-        isEnabledRAGAlerts: false, // <-- false
-        alertsIndexPattern: 'indexPattern',
-        allow: ['a', 'b', 'c'],
-        allowReplacement: ['b', 'c'],
-        size: 10,
-      };
-
-      const result = getOptionalRequestParams(params);
-
-      expect(result).toEqual({});
-    });
-
     it('should return the optional request params when alerts is true', () => {
       const params = {
-        isEnabledRAGAlerts: true,
         alertsIndexPattern: 'indexPattern',
-        allow: ['a', 'b', 'c'],
-        allowReplacement: ['b', 'c'],
         size: 10,
       };
 
@@ -190,22 +173,7 @@ describe('helpers', () => {
 
       expect(result).toEqual({
         alertsIndexPattern: 'indexPattern',
-        allow: ['a', 'b', 'c'],
-        allowReplacement: ['b', 'c'],
         size: 10,
-      });
-    });
-
-    it('should return (only) the optional request params that are defined when some optional params are not provided', () => {
-      const params = {
-        isEnabledRAGAlerts: true,
-        allow: ['a', 'b', 'c'], // all the others are undefined
-      };
-
-      const result = getOptionalRequestParams(params);
-
-      expect(result).toEqual({
-        allow: ['a', 'b', 'c'],
       });
     });
   });
@@ -223,12 +191,12 @@ describe('helpers', () => {
       replacements: {},
     };
     const baseConversations = {
-      conversation1: {
+      conversation_1: {
         ...defaultProps,
         title: 'Conversation 1',
         id: 'conversation_1',
       },
-      conversation2: {
+      conversation_2: {
         ...defaultProps,
         title: 'Conversation 2',
         id: 'conversation_2',
@@ -261,22 +229,22 @@ describe('helpers', () => {
       const result = mergeBaseWithPersistedConversations(baseConversations, moreData);
 
       expect(result).toEqual({
-        conversation1: {
+        conversation_1: {
           title: 'Conversation 1',
           id: 'conversation_1',
           ...defaultProps,
         },
-        conversation2: {
+        conversation_2: {
           title: 'Conversation 2',
           id: 'conversation_2',
           ...defaultProps,
         },
-        'Conversation 3': {
+        conversation_3: {
           title: 'Conversation 3',
           id: 'conversation_3',
           ...defaultProps,
         },
-        'Conversation 4': {
+        conversation_4: {
           title: 'Conversation 4',
           id: 'conversation_4',
           ...defaultProps,
@@ -298,71 +266,15 @@ describe('helpers', () => {
       const result = mergeBaseWithPersistedConversations({}, conversationsData);
 
       expect(result).toEqual({
-        'Conversation 1': {
+        conversation_1: {
           ...defaultProps,
           title: 'Conversation 1',
           id: 'conversation_1',
         },
-        'Conversation 2': {
+        conversation_2: {
           ...defaultProps,
           title: 'Conversation 2',
           id: 'conversation_2',
-        },
-      });
-    });
-
-    it('should handle and merge conversations with duplicate titles', () => {
-      const result = mergeBaseWithPersistedConversations(
-        {
-          'Conversation 1': {
-            title: 'Conversation 1',
-            id: 'conversation1',
-            ...defaultProps,
-          },
-        },
-        {
-          page: 1,
-          perPage: 10,
-          total: 1,
-          data: [
-            {
-              title: 'Conversation 1',
-              id: 'conversation1',
-              ...defaultProps,
-              messages: [
-                {
-                  content: 'Message 3',
-                  role: 'user' as const,
-                  timestamp: '2024-02-14T22:29:43.862Z',
-                },
-                {
-                  content: 'Message 4',
-                  role: 'user' as const,
-                  timestamp: '2024-02-14T22:29:43.862Z',
-                },
-              ],
-            },
-          ],
-        }
-      );
-
-      expect(result).toEqual({
-        'Conversation 1': {
-          title: 'Conversation 1',
-          id: 'conversation1',
-          ...defaultProps,
-          messages: [
-            {
-              content: 'Message 3',
-              role: 'user',
-              timestamp: '2024-02-14T22:29:43.862Z',
-            },
-            {
-              content: 'Message 4',
-              role: 'user',
-              timestamp: '2024-02-14T22:29:43.862Z',
-            },
-          ],
         },
       });
     });

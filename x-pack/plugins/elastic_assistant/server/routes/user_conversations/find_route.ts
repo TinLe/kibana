@@ -9,7 +9,7 @@ import type { IKibanaResponse } from '@kbn/core/server';
 import { transformError } from '@kbn/securitysolution-es-utils';
 
 import {
-  ELASTIC_AI_ASSISTANT_API_CURRENT_VERSION,
+  API_VERSIONS,
   ELASTIC_AI_ASSISTANT_CONVERSATIONS_URL_FIND,
 } from '@kbn/elastic-assistant-common';
 import {
@@ -21,6 +21,7 @@ import { ElasticAssistantPluginRouter } from '../../types';
 import { buildResponse } from '../utils';
 import { EsConversationSchema } from '../../ai_assistant_data_clients/conversations/types';
 import { transformESSearchToConversations } from '../../ai_assistant_data_clients/conversations/transforms';
+import { UPGRADE_LICENSE_MESSAGE, hasAIAssistantLicense } from '../helpers';
 
 export const findUserConversationsRoute = (router: ElasticAssistantPluginRouter) => {
   router.versioned
@@ -33,7 +34,7 @@ export const findUserConversationsRoute = (router: ElasticAssistantPluginRouter)
     })
     .addVersion(
       {
-        version: ELASTIC_AI_ASSISTANT_API_CURRENT_VERSION,
+        version: API_VERSIONS.public.v1,
         validate: {
           request: {
             query: buildRouteValidationWithZod(FindConversationsRequestQuery),
@@ -44,17 +45,28 @@ export const findUserConversationsRoute = (router: ElasticAssistantPluginRouter)
         const assistantResponse = buildResponse(response);
         try {
           const { query } = request;
-          const ctx = await context.resolve(['core', 'elasticAssistant']);
+          const ctx = await context.resolve(['core', 'elasticAssistant', 'licensing']);
+          const license = ctx.licensing.license;
+          if (!hasAIAssistantLicense(license)) {
+            return response.forbidden({
+              body: {
+                message: UPGRADE_LICENSE_MESSAGE,
+              },
+            });
+          }
           const dataClient = await ctx.elasticAssistant.getAIAssistantConversationsDataClient();
           const currentUser = ctx.elasticAssistant.getCurrentUser();
 
           const additionalFilter = query.filter ? ` AND ${query.filter}` : '';
+          const userFilter = currentUser?.username
+            ? `name: "${currentUser?.username}"`
+            : `id: "${currentUser?.profile_uid}"`;
           const result = await dataClient?.findDocuments<EsConversationSchema>({
             perPage: query.per_page,
             page: query.page,
             sortField: query.sort_field,
             sortOrder: query.sort_order,
-            filter: `users:{ id: "${currentUser?.profile_uid}" }${additionalFilter}`,
+            filter: `users:{ ${userFilter} }${additionalFilter}`,
             fields: query.fields,
           });
 

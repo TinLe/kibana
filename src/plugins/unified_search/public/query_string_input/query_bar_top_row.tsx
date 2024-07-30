@@ -18,7 +18,7 @@ import {
   isOfAggregateQueryType,
   getLanguageDisplayName,
 } from '@kbn/es-query';
-import { TextBasedLangEditor } from '@kbn/text-based-languages/public';
+import { TextBasedLangEditor } from '@kbn/esql/public';
 import { EMPTY } from 'rxjs';
 import { map } from 'rxjs';
 import { throttle } from 'lodash';
@@ -68,9 +68,17 @@ export const strings = {
     i18n.translate('unifiedSearch.queryBarTopRow.submitButton.update', {
       defaultMessage: 'Needs updating',
     }),
+  getUpdateButtonLabel: () =>
+    i18n.translate('unifiedSearch.queryBarTopRow.submitButton.updateButton', {
+      defaultMessage: 'Update',
+    }),
   getRefreshQueryLabel: () =>
     i18n.translate('unifiedSearch.queryBarTopRow.submitButton.refresh', {
       defaultMessage: 'Refresh query',
+    }),
+  getRefreshButtonLabel: () =>
+    i18n.translate('unifiedSearch.queryBarTopRow.submitButton.refreshButton', {
+      defaultMessage: 'Refresh',
     }),
   getCancelQueryLabel: () =>
     i18n.translate('unifiedSearch.queryBarTopRow.submitButton.cancel', {
@@ -79,6 +87,10 @@ export const strings = {
   getRunQueryLabel: () =>
     i18n.translate('unifiedSearch.queryBarTopRow.submitButton.run', {
       defaultMessage: 'Run query',
+    }),
+  getRunButtonLabel: () =>
+    i18n.translate('unifiedSearch.queryBarTopRow.submitButton.runButton', {
+      defaultMessage: 'Run',
     }),
   getDisabledDatePickerLabel: () =>
     i18n.translate('unifiedSearch.queryBarTopRow.datePicker.disabledLabel', {
@@ -554,8 +566,12 @@ export const QueryBarTopRow = React.memo(
         : strings.getRefreshQueryLabel();
       const buttonLabelRun = textBasedRunShortcut;
 
-      const iconDirty = Boolean(isQueryLangSelected) ? 'play' : 'kqlFunction';
+      const iconDirty = Boolean(isQueryLangSelected) ? 'playFilled' : 'kqlFunction';
       const tooltipDirty = Boolean(isQueryLangSelected) ? buttonLabelRun : buttonLabelUpdate;
+
+      const isDirtyButtonLabel = Boolean(isQueryLangSelected)
+        ? strings.getRunButtonLabel()
+        : strings.getUpdateButtonLabel();
 
       const button = props.customSubmitButton ? (
         React.cloneElement(props.customSubmitButton, { onClick: onClickSubmitButton })
@@ -572,16 +588,17 @@ export const QueryBarTopRow = React.memo(
               onClick={onClickSubmitButton}
               size={shouldShowDatePickerAsBadge() ? 's' : 'm'}
               color={props.isDirty ? 'success' : 'primary'}
-              fill={props.isDirty}
+              fill={false}
               needsUpdate={props.isDirty}
               data-test-subj="querySubmitButton"
-              // @ts-expect-error Need to fix expecting `children` in EUI
               toolTipProps={{
                 content: props.isDirty ? tooltipDirty : buttonLabelRefresh,
                 delay: 'long',
                 position: 'bottom',
               }}
-            />
+            >
+              {props.isDirty ? isDirtyButtonLabel : strings.getRefreshButtonLabel()}
+            </EuiSuperUpdateButton>
           )}
         </EuiFlexItem>
       );
@@ -706,9 +723,9 @@ export const QueryBarTopRow = React.memo(
 
     function renderTextLangEditor() {
       const adHocDataview = props.indexPatterns?.[0];
-      let detectTimestamp = false;
+      let detectedTimestamp;
       if (adHocDataview && typeof adHocDataview !== 'string') {
-        detectTimestamp = Boolean(adHocDataview?.timeFieldName);
+        detectedTimestamp = adHocDataview?.timeFieldName;
       }
       return (
         isQueryLangSelected &&
@@ -721,7 +738,7 @@ export const QueryBarTopRow = React.memo(
             isCodeEditorExpanded={codeEditorIsExpanded}
             errors={props.textBasedLanguageModeErrors}
             warning={props.textBasedLanguageModeWarning}
-            detectTimestamp={detectTimestamp}
+            detectedTimestamp={detectedTimestamp}
             onTextLangQuerySubmit={async () =>
               onSubmit({
                 query: queryRef.current,

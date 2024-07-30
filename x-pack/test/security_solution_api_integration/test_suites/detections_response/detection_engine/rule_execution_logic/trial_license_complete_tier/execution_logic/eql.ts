@@ -6,6 +6,9 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import moment from 'moment';
+import supertestLib from 'supertest';
+import url from 'url';
 import expect from '@kbn/expect';
 import {
   ALERT_REASON,
@@ -13,6 +16,7 @@ import {
   ALERT_WORKFLOW_STATUS,
   ALERT_WORKFLOW_TAGS,
   ALERT_WORKFLOW_ASSIGNEE_IDS,
+  ALERT_SUPPRESSION_DOCS_COUNT,
   EVENT_KIND,
 } from '@kbn/rule-data-utils';
 import { flattenWithPrefix } from '@kbn/securitysolution-rules';
@@ -30,21 +34,30 @@ import {
   ALERT_GROUP_ID,
 } from '@kbn/security-solution-plugin/common/field_maps/field_names';
 import { getMaxSignalsWarning as getMaxAlertsWarning } from '@kbn/security-solution-plugin/server/lib/detection_engine/rule_types/utils/utils';
-import { ENABLE_ASSET_CRITICALITY_SETTING } from '@kbn/security-solution-plugin/common/constants';
+import {
+  DETECTION_ENGINE_RULES_URL,
+  ENABLE_ASSET_CRITICALITY_SETTING,
+} from '@kbn/security-solution-plugin/common/constants';
 import {
   getEqlRuleForAlertTesting,
   getAlerts,
   getPreviewAlerts,
   previewRule,
   dataGeneratorFactory,
+  scheduleRuleRun,
+  stopAllManualRuns,
+  waitForBackfillExecuted,
 } from '../../../../utils';
 import {
   createRule,
   deleteAllRules,
   deleteAllAlerts,
+  waitForRuleFailure,
+  routeWithNamespace,
 } from '../../../../../../../common/utils/security_solution';
 import { FtrProviderContext } from '../../../../../../ftr_provider_context';
 import { EsArchivePathBuilder } from '../../../../../../es_archive_path_builder';
+import { getMetricsRequest, getMetricsWithRetry } from './utils';
 
 /**
  * Specific AGENT_ID to use for some of the tests. If the archiver changes and you see errors
@@ -59,14 +72,16 @@ export default ({ getService }: FtrProviderContext) => {
   const es = getService('es');
   const log = getService('log');
   const kibanaServer = getService('kibanaServer');
+  const retry = getService('retry');
 
   // TODO: add a new service for loading archiver files similar to "getService('es')"
   const config = getService('config');
+  const request = supertestLib(url.format(config.get('servers.kibana')));
   const isServerless = config.get('serverless');
   const dataPathBuilder = new EsArchivePathBuilder(isServerless);
   const auditPath = dataPathBuilder.getPath('auditbeat/hosts');
 
-  describe('@ess @serverless EQL type rules', () => {
+  describe('@ess @serverless @serverlessQA EQL type rules', () => {
     const { indexListOfDocuments } = dataGeneratorFactory({
       es,
       index: 'ecs_compliant',
@@ -194,6 +209,41 @@ export default ({ getService }: FtrProviderContext) => {
           module: 'auditd',
         }),
       });
+    });
+
+    // FLAKY: https://github.com/elastic/kibana/issues/180641
+    it.skip('classifies verification_exception errors as user errors', async () => {
+      await getMetricsRequest(request, true);
+      const rule: EqlRuleCreateProps = {
+        ...getEqlRuleForAlertTesting(['auditbeat-*']),
+        query: 'file where field.doesnt.exist == true',
+      };
+      const createdRule = await createRule(supertest, log, rule);
+      await waitForRuleFailure({ supertest, log, id: createdRule.id });
+
+      const route = routeWithNamespace(DETECTION_ENGINE_RULES_URL);
+      const response = await supertest
+        .get(route)
+        .set('kbn-xsrf', 'true')
+        .set('elastic-api-version', '2023-10-31')
+        .query({ id: createdRule.id })
+        .expect(200);
+
+      const ruleResponse = response.body;
+      expect(
+        ruleResponse.execution_summary.last_execution.message.includes('verification_exception')
+      ).eql(true);
+
+      const metricsResponse = await getMetricsWithRetry(
+        request,
+        retry,
+        false,
+        (metrics) =>
+          metrics.metrics?.task_run?.value.by_type['alerting:siem__eqlRule'].user_errors === 1
+      );
+      expect(
+        metricsResponse.metrics?.task_run?.value.by_type['alerting:siem__eqlRule'].user_errors
+      ).eql(1);
     });
 
     it('generates up to max_alerts for non-sequence EQL queries', async () => {
@@ -822,7 +872,7 @@ export default ({ getService }: FtrProviderContext) => {
 
       it('specifying only timestamp_field results in a warning, and no alerts are generated', async () => {
         const rule: EqlRuleCreateProps = {
-          ...getEqlRuleForAlertTesting(['no_at_timestamp_field']),
+          ...getEqlRuleForAlertTesting(['auditbeat-no_at_timestamp_field']),
           timestamp_field: 'event.ingested',
         };
 
@@ -833,7 +883,7 @@ export default ({ getService }: FtrProviderContext) => {
 
         expect(_log.errors).to.be.empty();
         expect(_log.warnings).to.contain(
-          'The following indices are missing the timestamp field "@timestamp": ["no_at_timestamp_field"]'
+          'The following indices are missing the timestamp field "@timestamp": ["auditbeat-no_at_timestamp_field"]'
         );
 
         const previewAlerts = await getPreviewAlerts({ es, previewId });
@@ -842,7 +892,7 @@ export default ({ getService }: FtrProviderContext) => {
 
       it('specifying only timestamp_override results in an error, and no alerts are generated', async () => {
         const rule: EqlRuleCreateProps = {
-          ...getEqlRuleForAlertTesting(['no_at_timestamp_field']),
+          ...getEqlRuleForAlertTesting(['auditbeat-no_at_timestamp_field']),
           timestamp_override: 'event.ingested',
         };
 
@@ -851,8 +901,8 @@ export default ({ getService }: FtrProviderContext) => {
           logs: [_log],
         } = await previewRule({ supertest, rule });
 
-        expect(_log.errors).to.contain(
-          'An error occurred during rule execution: message: "verification_exception\n\tRoot causes:\n\t\tverification_exception: Found 1 problem\nline -1:-1: Unknown column [@timestamp]"'
+        expect(_log.errors[0]).to.contain(
+          'verification_exception\n\tRoot causes:\n\t\tverification_exception: Found 1 problem\nline -1:-1: Unknown column [@timestamp]'
         );
 
         const previewAlerts = await getPreviewAlerts({ es, previewId });
@@ -861,7 +911,7 @@ export default ({ getService }: FtrProviderContext) => {
 
       it('specifying both timestamp_override and timestamp_field results in alert creation with no warnings or errors', async () => {
         const rule: EqlRuleCreateProps = {
-          ...getEqlRuleForAlertTesting(['no_at_timestamp_field']),
+          ...getEqlRuleForAlertTesting(['auditbeat-no_at_timestamp_field']),
           timestamp_field: 'event.ingested',
           timestamp_override: 'event.ingested',
         };
@@ -876,6 +926,269 @@ export default ({ getService }: FtrProviderContext) => {
         const previewAlerts = await getPreviewAlerts({ es, previewId });
 
         expect(previewAlerts).to.have.length(3);
+      });
+    });
+
+    // skipped on MKI since feature flags are not supported there
+    describe('@skipInServerlessMKI manual rule run', () => {
+      beforeEach(async () => {
+        await stopAllManualRuns(supertest);
+        await esArchiver.load('x-pack/test/functional/es_archives/security_solution/ecs_compliant');
+      });
+
+      afterEach(async () => {
+        await stopAllManualRuns(supertest);
+        await esArchiver.unload(
+          'x-pack/test/functional/es_archives/security_solution/ecs_compliant'
+        );
+      });
+
+      it('alerts when run on a time range that the rule has not previously seen, and deduplicates if run there more than once', async () => {
+        const id = uuidv4();
+        const firstTimestamp = moment(new Date()).subtract(3, 'h');
+
+        const firstDocument = {
+          id,
+          '@timestamp': firstTimestamp.toISOString(),
+          agent: {
+            name: 'agent-1',
+          },
+          client: {
+            ip: ['127.0.0.1', '127.0.0.2'],
+          },
+        };
+        const secondDocument = {
+          id,
+          '@timestamp': firstTimestamp.subtract(1, 'm').toISOString(),
+          agent: {
+            name: 'agent-2',
+          },
+          client: {
+            ip: ['127.0.0.1', '127.0.0.3'],
+          },
+        };
+        const thirdDocument = {
+          id,
+          '@timestamp': moment(new Date()).subtract(1, 'm').toISOString(),
+          agent: {
+            name: 'agent-3',
+          },
+          client: {
+            ip: ['127.0.0.1', '127.0.0.4'],
+          },
+        };
+        const fourthDocument = {
+          id,
+          '@timestamp': moment(new Date()).toISOString(),
+          agent: {
+            name: 'agent-4',
+          },
+          client: {
+            ip: ['127.0.0.1', '127.0.0.5'],
+          },
+        };
+
+        await indexListOfDocuments([firstDocument, secondDocument, thirdDocument, fourthDocument]);
+
+        const rule: EqlRuleCreateProps = {
+          ...getEqlRuleForAlertTesting(['ecs_compliant']),
+          query: `sequence [any where id == "${id}" ] [any where true]`,
+          from: 'now-1h',
+          interval: '1h',
+        };
+
+        const createdRule = await createRule(supertest, log, rule);
+        const alerts = await getAlerts(supertest, log, es, createdRule);
+
+        expect(alerts.hits.hits.length).equal(3);
+
+        const backfill = await scheduleRuleRun(supertest, [createdRule.id], {
+          startDate: moment(firstTimestamp).subtract(5, 'm'),
+          endDate: moment(firstTimestamp).add(5, 'm'),
+        });
+
+        await waitForBackfillExecuted(backfill, [createdRule.id], { supertest, log });
+        const allNewAlerts = await getAlerts(supertest, log, es, createdRule);
+        expect(allNewAlerts.hits.hits.length).equal(6);
+
+        const secondBackfill = await scheduleRuleRun(supertest, [createdRule.id], {
+          startDate: moment(firstTimestamp).subtract(5, 'm'),
+          endDate: moment(firstTimestamp).add(5, 'm'),
+        });
+
+        await waitForBackfillExecuted(secondBackfill, [createdRule.id], { supertest, log });
+        const allNewAlertsAfter2ManualRuns = await getAlerts(supertest, log, es, createdRule);
+        expect(allNewAlertsAfter2ManualRuns.hits.hits.length).equal(6);
+      });
+
+      it('does not alert if the manual run overlaps with a previous scheduled rule execution', async () => {
+        const id = uuidv4();
+        const firstTimestamp = moment(new Date());
+        const firstDocument = {
+          id,
+          '@timestamp': firstTimestamp.subtract(1, 'm').toISOString(),
+          agent: {
+            name: 'agent-3',
+          },
+          client: {
+            ip: ['127.0.0.1', '127.0.0.4'],
+          },
+        };
+        const secondDocument = {
+          id,
+          '@timestamp': firstTimestamp.subtract(2, 'm').toISOString(),
+          agent: {
+            name: 'agent-4',
+          },
+          client: {
+            ip: ['127.0.0.1', '127.0.0.5'],
+          },
+        };
+
+        await indexListOfDocuments([firstDocument, secondDocument]);
+
+        const rule: EqlRuleCreateProps = {
+          ...getEqlRuleForAlertTesting(['ecs_compliant']),
+          query: `sequence [any where id == "${id}" ] [any where true]`,
+          from: 'now-1h',
+          interval: '1h',
+        };
+
+        const createdRule = await createRule(supertest, log, rule);
+        const alerts = await getAlerts(supertest, log, es, createdRule);
+
+        expect(alerts.hits.hits.length).equal(3);
+
+        const backfill = await scheduleRuleRun(supertest, [createdRule.id], {
+          startDate: moment(firstTimestamp).subtract(5, 'm'),
+          endDate: moment(),
+        });
+
+        await waitForBackfillExecuted(backfill, [createdRule.id], { supertest, log });
+        const allNewAlerts = await getAlerts(supertest, log, es, createdRule);
+        expect(allNewAlerts.hits.hits.length).equal(3);
+      });
+
+      it('supression per rule execution should work for manual rule runs', async () => {
+        const id = uuidv4();
+        const firstTimestamp = moment(new Date()).subtract(3, 'h');
+
+        const firstDocument = {
+          id,
+          '@timestamp': firstTimestamp.toISOString(),
+          agent: {
+            name: 'agent-1',
+          },
+        };
+        const secondDocument = {
+          id,
+          '@timestamp': moment(firstTimestamp).add(1, 'm').toISOString(),
+          agent: {
+            name: 'agent-1',
+          },
+        };
+        const thirdDocument = {
+          id,
+          '@timestamp': moment(firstTimestamp).add(3, 'm').toISOString(),
+          agent: {
+            name: 'agent-1',
+          },
+        };
+
+        await indexListOfDocuments([firstDocument, secondDocument, thirdDocument]);
+
+        const rule: EqlRuleCreateProps = {
+          ...getEqlRuleForAlertTesting(['ecs_compliant']),
+          query: `any where true`,
+          from: 'now-1h',
+          interval: '1h',
+          alert_suppression: {
+            group_by: ['agent.name'],
+          },
+        };
+
+        const createdRule = await createRule(supertest, log, rule);
+        const alerts = await getAlerts(supertest, log, es, createdRule);
+
+        expect(alerts.hits.hits.length).equal(0);
+
+        const backfill = await scheduleRuleRun(supertest, [createdRule.id], {
+          startDate: moment(firstTimestamp).subtract(5, 'm'),
+          endDate: moment(firstTimestamp).add(10, 'm'),
+        });
+
+        await waitForBackfillExecuted(backfill, [createdRule.id], { supertest, log });
+        const allNewAlerts = await getAlerts(supertest, log, es, createdRule);
+        expect(allNewAlerts.hits.hits.length).equal(1);
+
+        expect(allNewAlerts.hits.hits[0]._source?.[ALERT_SUPPRESSION_DOCS_COUNT]).equal(2);
+      });
+
+      it('supression with time window should work for manual rule runs and update alert', async () => {
+        const id = uuidv4();
+        const firstTimestamp = moment(new Date()).subtract(3, 'h');
+
+        const firstDocument = {
+          id,
+          '@timestamp': firstTimestamp.toISOString(),
+          agent: {
+            name: 'agent-1',
+          },
+        };
+
+        await indexListOfDocuments([firstDocument]);
+
+        const rule: EqlRuleCreateProps = {
+          ...getEqlRuleForAlertTesting(['ecs_compliant']),
+          query: `any where true`,
+          from: 'now-1h',
+          interval: '1h',
+          alert_suppression: {
+            group_by: ['agent.name'],
+            duration: {
+              value: 500,
+              unit: 'm',
+            },
+          },
+        };
+
+        const createdRule = await createRule(supertest, log, rule);
+        const alerts = await getAlerts(supertest, log, es, createdRule);
+
+        expect(alerts.hits.hits.length).equal(0);
+
+        // generate alert in the past
+        const backfill = await scheduleRuleRun(supertest, [createdRule.id], {
+          startDate: moment(firstTimestamp).subtract(5, 'm'),
+          endDate: moment(firstTimestamp).add(10, 'm'),
+        });
+        await waitForBackfillExecuted(backfill, [createdRule.id], { supertest, log });
+        const allNewAlerts = await getAlerts(supertest, log, es, createdRule);
+        expect(allNewAlerts.hits.hits.length).equal(1);
+
+        // now we will ingest new event, and manual rule run should update original alert
+        const secondDocument = {
+          id,
+          '@timestamp': moment(firstTimestamp).add(5, 'm').toISOString(),
+          agent: {
+            name: 'agent-1',
+          },
+        };
+
+        await indexListOfDocuments([secondDocument]);
+
+        const secondBackfill = await scheduleRuleRun(supertest, [createdRule.id], {
+          startDate: moment(firstTimestamp).add(1, 'm'),
+          endDate: moment(firstTimestamp).add(120, 'm'),
+        });
+
+        await waitForBackfillExecuted(secondBackfill, [createdRule.id], { supertest, log });
+        const updatedAlerts = await getAlerts(supertest, log, es, createdRule);
+        expect(updatedAlerts.hits.hits.length).equal(1);
+
+        expect(updatedAlerts.hits.hits.length).equal(1);
+
+        expect(updatedAlerts.hits.hits[0]._source?.[ALERT_SUPPRESSION_DOCS_COUNT]).equal(1);
       });
     });
   });

@@ -6,7 +6,6 @@
  */
 
 import { useCallback } from 'react';
-
 import { ApiConfig } from '@kbn/elastic-assistant-common';
 import { useAssistantContext } from '../../assistant_context';
 import { Conversation, ClientMessage } from '../../assistant_context/types';
@@ -19,6 +18,7 @@ import {
   updateConversation,
 } from '../api/conversations';
 import { WELCOME_CONVERSATION } from './sample_conversations';
+import { useFetchPrompts } from '../api/prompts/use_fetch_prompts';
 
 export const DEFAULT_CONVERSATION_STATE: Conversation = {
   id: '',
@@ -31,11 +31,18 @@ export const DEFAULT_CONVERSATION_STATE: Conversation = {
 interface CreateConversationProps {
   cTitle: string;
   messages?: ClientMessage[];
+  conversationIds?: string[];
+  apiConfig?: Conversation['apiConfig'];
 }
 
 interface SetApiConfigProps {
   conversation: Conversation;
   apiConfig: ApiConfig;
+}
+
+interface UpdateConversationTitleProps {
+  conversationId: string;
+  updatedTitle: string;
 }
 
 interface UseConversation {
@@ -47,16 +54,27 @@ interface UseConversation {
     conversation,
     apiConfig,
   }: SetApiConfigProps) => Promise<Conversation | undefined>;
-  createConversation: (conversation: Conversation) => Promise<Conversation | undefined>;
-  getConversation: (conversationId: string) => Promise<Conversation | undefined>;
+  createConversation: (conversation: Partial<Conversation>) => Promise<Conversation | undefined>;
+  getConversation: (conversationId: string, silent?: boolean) => Promise<Conversation | undefined>;
+  updateConversationTitle: ({
+    conversationId,
+    updatedTitle,
+  }: UpdateConversationTitleProps) => Promise<Conversation>;
 }
 
 export const useConversation = (): UseConversation => {
-  const { allSystemPrompts, http, toasts } = useAssistantContext();
+  const { http, toasts } = useAssistantContext();
+  const {
+    data: { data: allPrompts },
+  } = useFetchPrompts();
 
   const getConversation = useCallback(
-    async (conversationId: string) => {
-      return getConversationById({ http, id: conversationId, toasts });
+    async (conversationId: string, silent?: boolean) => {
+      return getConversationById({
+        http,
+        id: conversationId,
+        toasts: !silent ? toasts : undefined,
+      });
     },
     [http, toasts]
   );
@@ -86,7 +104,7 @@ export const useConversation = (): UseConversation => {
     async (conversation: Conversation) => {
       if (conversation.apiConfig) {
         const defaultSystemPromptId = getDefaultSystemPrompt({
-          allSystemPrompts,
+          allSystemPrompts: allPrompts,
           conversation,
         })?.id;
 
@@ -100,7 +118,7 @@ export const useConversation = (): UseConversation => {
         });
       }
     },
-    [allSystemPrompts, http, toasts]
+    [allPrompts, http, toasts]
   );
 
   /**
@@ -126,7 +144,7 @@ export const useConversation = (): UseConversation => {
    * Create a new conversation with the given conversation
    */
   const createConversation = useCallback(
-    async (conversation: Conversation): Promise<Conversation | undefined> => {
+    async (conversation: Partial<Conversation>): Promise<Conversation | undefined> => {
       return createConversationApi({ http, conversation, toasts });
     },
     [http, toasts]
@@ -174,12 +192,23 @@ export const useConversation = (): UseConversation => {
     [http, toasts]
   );
 
+  const updateConversationTitle = useCallback(
+    ({ conversationId, updatedTitle }: UpdateConversationTitleProps): Promise<Conversation> =>
+      updateConversation({
+        http,
+        conversationId,
+        title: updatedTitle,
+      }),
+    [http]
+  );
+
   return {
     clearConversation,
     getDefaultConversation,
     deleteConversation,
     removeLastMessage,
     setApiConfig,
+    updateConversationTitle,
     createConversation,
     getConversation,
   };

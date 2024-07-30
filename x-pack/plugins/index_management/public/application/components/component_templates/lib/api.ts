@@ -11,6 +11,7 @@ import {
   ComponentTemplateDeserialized,
   ComponentTemplateSerialized,
   ComponentTemplateDatastreams,
+  ComponentTemplateMeta,
 } from '../shared_imports';
 import {
   UIM_COMPONENT_TEMPLATE_DELETE_MANY,
@@ -95,13 +96,6 @@ export const getApi = (
     });
   }
 
-  async function getInferenceModels() {
-    return sendRequest({
-      path: `${apiBasePath}/inference/all`,
-      method: 'get',
-    });
-  }
-
   async function postDataStreamRollover(name: string) {
     return sendRequest<ComponentTemplateDatastreams>({
       path: `${apiBasePath}/data_streams/${encodeURIComponent(name)}/rollover`,
@@ -116,16 +110,35 @@ export const getApi = (
     });
   }
 
+  function useLoadReferencedIndexTemplateMeta(name: string) {
+    return useRequest<ComponentTemplateMeta>({
+      path: `${apiBasePath}/component_templates/${encodeURIComponent(
+        name
+      )}/referenced_index_template_meta`,
+      method: 'get',
+    });
+  }
+
+  async function getReferencedIndexTemplateMeta(name: string) {
+    return sendRequest<ComponentTemplateMeta>({
+      path: `${apiBasePath}/component_templates/${encodeURIComponent(
+        name
+      )}/referenced_index_template_meta`,
+      method: 'get',
+    });
+  }
+
   return {
     useLoadComponentTemplates,
     deleteComponentTemplates,
     useLoadComponentTemplate,
     createComponentTemplate,
     updateComponentTemplate,
+    useLoadReferencedIndexTemplateMeta,
     useLoadComponentTemplatesDatastream,
+    getReferencedIndexTemplateMeta,
     getComponentTemplateDatastreams,
     postDataStreamRollover,
     postDataStreamMappingsFromTemplate,
-    getInferenceModels,
   };
 };

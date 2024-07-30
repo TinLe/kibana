@@ -15,6 +15,8 @@ import { initDashboard } from '../lib/gen_ai/create_gen_ai_dashboard';
 import {
   RunActionParamsSchema,
   InvokeAIActionParamsSchema,
+  InvokeAIRawActionParamsSchema,
+  InvokeAIRawActionResponseSchema,
   StreamingResponseSchema,
   RunActionResponseSchema,
   RunApiLatestResponseSchema,
@@ -26,10 +28,15 @@ import {
   RunActionResponse,
   InvokeAIActionParams,
   InvokeAIActionResponse,
-  StreamActionParams,
+  InvokeAIRawActionParams,
+  InvokeAIRawActionResponse,
   RunApiLatestResponse,
 } from '../../../common/bedrock/types';
-import { SUB_ACTION, DEFAULT_TOKEN_LIMIT } from '../../../common/bedrock/constants';
+import {
+  SUB_ACTION,
+  DEFAULT_TOKEN_LIMIT,
+  DEFAULT_TIMEOUT_MS,
+} from '../../../common/bedrock/constants';
 import {
   DashboardActionParams,
   DashboardActionResponse,
@@ -75,6 +82,7 @@ export class BedrockConnector extends SubActionConnector<Config, Secrets> {
       method: 'runApi',
       schema: RunActionParamsSchema,
     });
+
     this.registerSubAction({
       name: SUB_ACTION.INVOKE_AI,
       method: 'invokeAI',
@@ -85,6 +93,12 @@ export class BedrockConnector extends SubActionConnector<Config, Secrets> {
       name: SUB_ACTION.INVOKE_STREAM,
       method: 'invokeStream',
       schema: InvokeAIActionParamsSchema,
+    });
+
+    this.registerSubAction({
+      name: SUB_ACTION.INVOKE_AI_RAW,
+      method: 'invokeAIRaw',
+      schema: InvokeAIRawActionParamsSchema,
     });
   }
 
@@ -179,15 +193,15 @@ The Kibana Connector in use may need to be reconfigured with an updated Amazon B
     return { available: response.success };
   }
 
-  private async runApiDeprecated(
-    params: SubActionRequestParams<RunActionResponse> // : SubActionRequestParams<RunApiLatestResponseSchema>
-  ): Promise<RunActionResponse> {
+  private async runApiRaw(
+    params: SubActionRequestParams<RunActionResponse | InvokeAIRawActionResponse>
+  ): Promise<RunActionResponse | InvokeAIRawActionResponse> {
     const response = await this.request(params);
     return response.data;
   }
 
   private async runApiLatest(
-    params: SubActionRequestParams<RunApiLatestResponse> // : SubActionRequestParams<RunApiLatestResponseSchema>
+    params: SubActionRequestParams<RunApiLatestResponse>
   ): Promise<RunActionResponse> {
     const response = await this.request(params);
     // keeping the response the same as claude 2 for our APIs
@@ -204,7 +218,13 @@ The Kibana Connector in use may need to be reconfigured with an updated Amazon B
    * @param body The stringified request body to be sent in the POST request.
    * @param model Optional model to be used for the API request. If not provided, the default model from the connector will be used.
    */
-  public async runApi({ body, model: reqModel }: RunActionParams): Promise<RunActionResponse> {
+  public async runApi({
+    body,
+    model: reqModel,
+    signal,
+    timeout,
+    raw,
+  }: RunActionParams): Promise<RunActionResponse | InvokeAIRawActionResponse> {
     // set model on per request basis
     const currentModel = reqModel ?? this.model;
     const path = `/model/${currentModel}/invoke`;
@@ -214,12 +234,17 @@ The Kibana Connector in use may need to be reconfigured with an updated Amazon B
       url: `${this.url}${path}`,
       method: 'post' as Method,
       data: body,
+      signal,
       // give up to 2 minutes for response
-      timeout: 120000,
+      timeout: timeout ?? DEFAULT_TIMEOUT_MS,
     };
+
+    if (raw) {
+      return this.runApiRaw({ ...requestArgs, responseSchema: InvokeAIRawActionResponseSchema });
+    }
     // possible api received deprecated arguments, which will still work with the deprecated Claude 2 models
     if (usesDeprecatedArguments(body)) {
-      return this.runApiDeprecated({ ...requestArgs, responseSchema: RunActionResponseSchema });
+      return this.runApiRaw({ ...requestArgs, responseSchema: RunActionResponseSchema });
     }
     return this.runApiLatest({ ...requestArgs, responseSchema: RunApiLatestResponseSchema });
   }
@@ -235,7 +260,9 @@ The Kibana Connector in use may need to be reconfigured with an updated Amazon B
   private async streamApi({
     body,
     model: reqModel,
-  }: StreamActionParams): Promise<StreamingResponse> {
+    signal,
+    timeout,
+  }: RunActionParams): Promise<StreamingResponse> {
     // set model on per request basis
     const path = `/model/${reqModel ?? this.model}/invoke-with-response-stream`;
     const signed = this.signRequest(body, path, true);
@@ -247,6 +274,8 @@ The Kibana Connector in use may need to be reconfigured with an updated Amazon B
       responseSchema: StreamingResponseSchema,
       data: body,
       responseType: 'stream',
+      signal,
+      timeout,
     });
 
     return response.data.pipe(new PassThrough());
@@ -266,10 +295,17 @@ The Kibana Connector in use may need to be reconfigured with an updated Amazon B
     stopSequences,
     system,
     temperature,
-  }: InvokeAIActionParams): Promise<IncomingMessage> {
+    signal,
+    timeout,
+    tools,
+  }: InvokeAIActionParams | InvokeAIRawActionParams): Promise<IncomingMessage> {
     const res = (await this.streamApi({
-      body: JSON.stringify(formatBedrockBody({ messages, stopSequences, system, temperature })),
+      body: JSON.stringify(
+        formatBedrockBody({ messages, stopSequences, system, temperature, tools })
+      ),
       model,
+      signal,
+      timeout,
     })) as unknown as IncomingMessage;
     return res;
   }
@@ -288,12 +324,49 @@ The Kibana Connector in use may need to be reconfigured with an updated Amazon B
     stopSequences,
     system,
     temperature,
+    maxTokens,
+    signal,
+    timeout,
   }: InvokeAIActionParams): Promise<InvokeAIActionResponse> {
-    const res = await this.runApi({
-      body: JSON.stringify(formatBedrockBody({ messages, stopSequences, system, temperature })),
+    const res = (await this.runApi({
+      body: JSON.stringify(
+        formatBedrockBody({ messages, stopSequences, system, temperature, maxTokens })
+      ),
       model,
-    });
+      signal,
+      timeout,
+    })) as RunActionResponse;
     return { message: res.completion.trim() };
+  }
+
+  public async invokeAIRaw({
+    messages,
+    model,
+    stopSequences,
+    system,
+    temperature,
+    maxTokens = DEFAULT_TOKEN_LIMIT,
+    signal,
+    timeout,
+    tools,
+    anthropicVersion,
+  }: InvokeAIRawActionParams): Promise<InvokeAIRawActionResponse> {
+    const res = await this.runApi({
+      body: JSON.stringify({
+        messages,
+        stop_sequences: stopSequences,
+        system,
+        temperature,
+        max_tokens: maxTokens,
+        tools,
+        anthropic_version: anthropicVersion,
+      }),
+      model,
+      signal,
+      timeout,
+      raw: true,
+    });
+    return res;
   }
 }
 
@@ -302,35 +375,44 @@ const formatBedrockBody = ({
   stopSequences,
   temperature = 0,
   system,
+  maxTokens = DEFAULT_TOKEN_LIMIT,
+  tools,
 }: {
-  messages: Array<{ role: string; content: string }>;
+  messages: Array<{ role: string; content?: string }>;
   stopSequences?: string[];
   temperature?: number;
+  maxTokens?: number;
   // optional system message to be sent to the API
   system?: string;
+  tools?: Array<{ name: string; description: string }>;
 }) => ({
   anthropic_version: 'bedrock-2023-05-31',
   ...ensureMessageFormat(messages, system),
-  max_tokens: DEFAULT_TOKEN_LIMIT,
+  max_tokens: maxTokens,
   stop_sequences: stopSequences,
   temperature,
+  tools,
 });
 
 /**
  * Ensures that the messages are in the correct format for the Bedrock API
- * Bedrock only accepts assistant and user roles.
  * If 2 user or 2 assistant messages are sent in a row, Bedrock throws an error
  * We combine the messages into a single message to avoid this error
  * @param messages
  */
 const ensureMessageFormat = (
-  messages: Array<{ role: string; content: string }>,
+  messages: Array<{ role: string; content?: string }>,
   systemPrompt?: string
-): { messages: Array<{ role: string; content: string }>; system?: string } => {
+): { messages: Array<{ role: string; content?: string }>; system?: string } => {
   let system = systemPrompt ? systemPrompt : '';
 
-  const newMessages = messages.reduce((acc: Array<{ role: string; content: string }>, m) => {
+  const newMessages = messages.reduce((acc: Array<{ role: string; content?: string }>, m) => {
     const lastMessage = acc[acc.length - 1];
+    if (m.role === 'system') {
+      system = `${system.length ? `${system}\n` : ''}${m.content}`;
+      return acc;
+    }
+
     if (lastMessage && lastMessage.role === m.role) {
       // Bedrock only accepts assistant and user roles.
       // If 2 user or 2 assistant messages are sent in a row, combine the messages into a single message
@@ -339,13 +421,12 @@ const ensureMessageFormat = (
         { content: `${lastMessage.content}\n${m.content}`, role: m.role },
       ];
     }
-    if (m.role === 'system') {
-      system = `${system.length ? `${system}\n` : ''}${m.content}`;
-      return acc;
-    }
 
     // force role outside of system to ensure it is either assistant or user
-    return [...acc, { content: m.content, role: m.role === 'assistant' ? 'assistant' : 'user' }];
+    return [
+      ...acc,
+      { content: m.content, role: ['assistant', 'ai'].includes(m.role) ? 'assistant' : 'user' },
+    ];
   }, []);
   return system.length ? { system, messages: newMessages } : { messages: newMessages };
 };

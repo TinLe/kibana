@@ -9,7 +9,6 @@ import {
   HealthStatus,
   IndexName,
   IndicesStatsIndexMetadataState,
-  QueryDslQueryContainer,
   Uuid,
 } from '@elastic/elasticsearch/lib/api/typesWithBodyKey';
 import { NavigationPublicPluginStart } from '@kbn/navigation-plugin/public';
@@ -19,10 +18,13 @@ import React, { ComponentType } from 'react';
 import { SharePluginStart } from '@kbn/share-plugin/public';
 import { CloudSetup } from '@kbn/cloud-plugin/public';
 import { TriggersAndActionsUIPublicPluginStart } from '@kbn/triggers-actions-ui-plugin/public';
-import { ChatRequestData } from '../common/types';
+import { AppMountParameters } from '@kbn/core/public';
+import { UsageCollectionStart } from '@kbn/usage-collection-plugin/public';
+import type { ConsolePluginStart } from '@kbn/console-plugin/public';
+import { ChatRequestData, MessageRole } from '../common/types';
 import type { App } from './components/app';
 import type { PlaygroundProvider as PlaygroundProviderComponent } from './providers/playground_provider';
-import type { Toolbar } from './components/toolbar';
+import { PlaygroundHeaderDocs } from './components/playground_header_docs';
 
 export * from '../common/types';
 
@@ -30,13 +32,17 @@ export * from '../common/types';
 export interface SearchPlaygroundPluginSetup {}
 export interface SearchPlaygroundPluginStart {
   PlaygroundProvider: React.FC<React.ComponentProps<typeof PlaygroundProviderComponent>>;
-  PlaygroundToolbar: React.FC<React.ComponentProps<typeof Toolbar>>;
   Playground: React.FC<React.ComponentProps<typeof App>>;
+  PlaygroundHeaderDocs: React.FC<React.ComponentProps<typeof PlaygroundHeaderDocs>>;
 }
 
 export interface AppPluginStartDependencies {
+  history: AppMountParameters['history'];
+  usageCollection?: UsageCollectionStart;
   navigation: NavigationPublicPluginStart;
   triggersActionsUi: TriggersAndActionsUIPublicPluginStart;
+  share: SharePluginStart;
+  console?: ConsolePluginStart;
 }
 
 export interface AppServicesContext {
@@ -45,6 +51,8 @@ export interface AppServicesContext {
   share: SharePluginStart;
   cloud?: CloudSetup;
   triggersActionsUi: TriggersAndActionsUIPublicPluginStart;
+  usageCollection?: UsageCollectionStart;
+  console?: ConsolePluginStart;
 }
 
 export enum ChatFormFields {
@@ -56,6 +64,7 @@ export enum ChatFormFields {
   summarizationModel = 'summarization_model',
   sourceFields = 'source_fields',
   docSize = 'doc_size',
+  queryFields = 'query_fields',
 }
 
 export interface ChatForm {
@@ -64,15 +73,10 @@ export interface ChatForm {
   [ChatFormFields.citations]: boolean;
   [ChatFormFields.indices]: string[];
   [ChatFormFields.summarizationModel]: LLMModel;
-  [ChatFormFields.elasticsearchQuery]: { query: QueryDslQueryContainer };
-  [ChatFormFields.sourceFields]: string[];
+  [ChatFormFields.elasticsearchQuery]: { retriever: any }; // RetrieverContainer leads to "Type instantiation is excessively deep and possibly infinite" error
+  [ChatFormFields.sourceFields]: { [index: string]: string[] };
   [ChatFormFields.docSize]: number;
-}
-
-export enum MessageRole {
-  'user' = 'human',
-  'assistant' = 'assistant',
-  'system' = 'system',
+  [ChatFormFields.queryFields]: { [index: string]: string[] };
 }
 
 export interface Message {
@@ -84,32 +88,36 @@ export interface Message {
 }
 
 export interface DocAnnotation {
-  metadata: { id: string; score: number };
+  metadata: { _id: string; _score: number; _index: string };
   pageContent: string;
 }
 
-export interface Annotation {
+export type Annotation = AnnotationDoc | AnnotationTokens;
+
+export interface AnnotationDoc {
   type: 'citations' | 'retrieved_docs';
   documents: DocAnnotation[];
 }
 
+export interface AnnotationTokens {
+  type: 'prompt_token_count' | 'context_token_count' | 'context_clipped';
+  count: number;
+}
+
 export interface Doc {
-  id: string;
   content: string;
+  metadata: { _id: string; _score: number; _index: string };
 }
 
 export interface AIMessage extends Message {
   role: MessageRole.assistant;
   citations: Doc[];
   retrievalDocs: Doc[];
-}
-
-export enum SummarizationModelName {
-  gpt3_5_turbo = 'gpt-3.5-turbo',
-  gpt3_5_turbo_1106 = 'gpt-3.5-turbo-1106',
-  gpt3_5_turbo_16k = 'gpt-3.5-turbo-16k',
-  gpt3_5_turbo_16k_0613 = 'gpt-3.5-turbo-16k-0613',
-  gpt3_5_turbo_instruct = 'gpt-3.5-turbo-instruct',
+  inputTokens: {
+    context: number;
+    total: number;
+    contextClipped?: number;
+  };
 }
 
 export interface ElasticsearchIndex {
@@ -195,9 +203,14 @@ export interface UseChatHelpers {
 }
 
 export interface LLMModel {
+  id: string;
   name: string;
   value?: string;
+  showConnectorName?: boolean;
+  connectorId: string;
+  connectorName: string;
+  connectorType: string;
   icon: ComponentType;
   disabled: boolean;
-  connectorId?: string;
+  promptTokenLimit?: number;
 }

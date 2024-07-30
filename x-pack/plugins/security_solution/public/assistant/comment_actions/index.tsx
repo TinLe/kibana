@@ -31,7 +31,7 @@ const CommentActionsComponent: React.FC<Props> = ({ message }) => {
   const dispatch = useDispatch();
   const isModelEvaluationEnabled = useIsExperimentalFeatureEnabled('assistantModelEvaluation');
 
-  const { showAssistantOverlay, traceOptions } = useAssistantContext();
+  const { traceOptions } = useAssistantContext();
 
   const associateNote = useCallback(
     (noteId: string) => dispatch(timelineActions.addNote({ id: TimelineId.active, noteId })),
@@ -64,8 +64,6 @@ const CommentActionsComponent: React.FC<Props> = ({ message }) => {
   });
 
   const onAddToExistingCase = useCallback(() => {
-    showAssistantOverlay({ showOverlay: false });
-
     selectCaseModal.open({
       getAttachments: () => [
         {
@@ -75,7 +73,7 @@ const CommentActionsComponent: React.FC<Props> = ({ message }) => {
         },
       ],
     });
-  }, [content, selectCaseModal, showAssistantOverlay]);
+  }, [content, selectCaseModal]);
 
   // Note: This feature is behind the `isModelEvaluationEnabled` FF. If ever released, this URL should be configurable
   // as APM data may not go to the same cluster where the Kibana instance is running

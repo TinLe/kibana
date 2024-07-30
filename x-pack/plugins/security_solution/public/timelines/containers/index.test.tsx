@@ -14,6 +14,7 @@ import { TimelineId } from '../../../common/types/timeline';
 import { useIsExperimentalFeatureEnabled } from '../../common/hooks/use_experimental_features';
 import { mockTimelineData } from '../../common/mock';
 import { useRouteSpy } from '../../common/utils/route/use_route_spy';
+import { useFetchNotes } from '../../notes/hooks/use_fetch_notes';
 
 const mockDispatch = jest.fn();
 jest.mock('react-redux', () => {
@@ -24,6 +25,10 @@ jest.mock('react-redux', () => {
     useDispatch: () => mockDispatch,
   };
 });
+
+jest.mock('../../notes/hooks/use_fetch_notes');
+const onLoadMock = jest.fn();
+const useFetchNotesMock = useFetchNotes as jest.Mock;
 
 const mockEvents = mockTimelineData.filter((i, index) => index <= 11);
 
@@ -102,8 +107,15 @@ mockUseRouteSpy.mockReturnValue([
 
 describe('useTimelineEvents', () => {
   useIsExperimentalFeatureEnabledMock.mockReturnValue(false);
+
   beforeEach(() => {
     mockSearch.mockReset();
+    useFetchNotesMock.mockClear();
+    onLoadMock.mockClear();
+
+    useFetchNotesMock.mockReturnValue({
+      onLoad: onLoadMock,
+    });
   });
 
   const startDate: string = '2020-07-07T08:20:18.966Z';
@@ -113,7 +125,7 @@ describe('useTimelineEvents', () => {
     endDate: '',
     id: TimelineId.active,
     indexNames: ['filebeat-*'],
-    fields: [],
+    fields: ['@timestamp', 'event.kind'],
     filterQuery: '',
     startDate: '',
     limit: 25,
@@ -264,6 +276,117 @@ describe('useTimelineEvents', () => {
       result.current[1].loadPage(4);
       await waitForNextUpdate();
       expect(mockSearch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test('should query again when a new field is added', async () => {
+    await act(async () => {
+      const { waitForNextUpdate, rerender } = renderHook<
+        UseTimelineEventsProps,
+        [DataLoadingState, TimelineArgs]
+      >((args) => useTimelineEvents(args), {
+        initialProps: { ...props },
+      });
+
+      // useEffect on params request
+      await waitForNextUpdate();
+      rerender({ ...props, startDate, endDate });
+      // useEffect on params request
+      await waitForNextUpdate();
+
+      expect(mockSearch).toHaveBeenCalledTimes(2);
+      mockSearch.mockClear();
+
+      rerender({
+        ...props,
+        startDate,
+        endDate,
+        fields: ['@timestamp', 'event.kind', 'event.category'],
+      });
+
+      await waitForNextUpdate();
+
+      expect(mockSearch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test('should not query again when a field is removed', async () => {
+    await act(async () => {
+      const { waitForNextUpdate, rerender } = renderHook<
+        UseTimelineEventsProps,
+        [DataLoadingState, TimelineArgs]
+      >((args) => useTimelineEvents(args), {
+        initialProps: { ...props },
+      });
+
+      // useEffect on params request
+      await waitForNextUpdate();
+      rerender({ ...props, startDate, endDate });
+      // useEffect on params request
+      await waitForNextUpdate();
+
+      expect(mockSearch).toHaveBeenCalledTimes(2);
+      mockSearch.mockClear();
+
+      rerender({ ...props, startDate, endDate, fields: ['@timestamp'] });
+
+      // since there is no new update in useEffect, it should throw an timeout error
+      await expect(waitForNextUpdate()).rejects.toThrowError();
+
+      expect(mockSearch).toHaveBeenCalledTimes(0);
+    });
+  });
+  test('should not query again when a removed field is added back', async () => {
+    await act(async () => {
+      const { waitForNextUpdate, rerender } = renderHook<
+        UseTimelineEventsProps,
+        [DataLoadingState, TimelineArgs]
+      >((args) => useTimelineEvents(args), {
+        initialProps: { ...props },
+      });
+
+      // useEffect on params request
+      await waitForNextUpdate();
+      rerender({ ...props, startDate, endDate });
+      // useEffect on params request
+      await waitForNextUpdate();
+
+      expect(mockSearch).toHaveBeenCalledTimes(2);
+      mockSearch.mockClear();
+
+      // remove `event.kind` from default fields
+      rerender({ ...props, startDate, endDate, fields: ['@timestamp'] });
+
+      // since there is no new update in useEffect, it should throw an timeout error
+      await expect(waitForNextUpdate()).rejects.toThrowError();
+
+      expect(mockSearch).toHaveBeenCalledTimes(0);
+
+      // request default Fields
+      rerender({ ...props, startDate, endDate });
+
+      // since there is no new update in useEffect, it should throw an timeout error
+      await expect(waitForNextUpdate()).rejects.toThrowError();
+
+      expect(mockSearch).toHaveBeenCalledTimes(0);
+    });
+  });
+
+  describe('Fetch Notes', () => {
+    test('should call onLoad for notes when events are fetched', async () => {
+      await act(async () => {
+        const { waitFor } = renderHook<UseTimelineEventsProps, [DataLoadingState, TimelineArgs]>(
+          (args) => useTimelineEvents(args),
+          {
+            initialProps: { ...props },
+          }
+        );
+
+        await waitFor(() => {
+          expect(mockSearch).toHaveBeenCalledTimes(1);
+          expect(onLoadMock).toHaveBeenNthCalledWith(1, expect.objectContaining(mockEvents));
+        });
+      });
     });
   });
 });

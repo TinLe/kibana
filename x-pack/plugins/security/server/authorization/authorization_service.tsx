@@ -22,8 +22,8 @@ import type {
 } from '@kbn/core/server';
 import type { Capabilities as UICapabilities } from '@kbn/core/types';
 import type {
-  PluginSetupContract as FeaturesPluginSetup,
-  PluginStartContract as FeaturesPluginStart,
+  FeaturesPluginSetup as FeaturesPluginSetup,
+  FeaturesPluginStart as FeaturesPluginStart,
 } from '@kbn/features-plugin/server';
 import type {
   AuthorizationMode,
@@ -194,7 +194,13 @@ export class AuthorizationService {
             />
           );
 
-          return toolkit.render({ body, headers: { 'Content-Security-Policy': http.csp.header } });
+          return toolkit.render({
+            body,
+            headers: {
+              'Content-Security-Policy': http.csp.header,
+              'Content-Security-Policy-Report-Only': http.csp.reportOnlyHeader,
+            },
+          });
         }
       }
 

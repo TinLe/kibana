@@ -7,11 +7,15 @@
 
 import { EuiFlexGroup, EuiFlexItem, EuiPageHeaderProps } from '@elastic/eui';
 import { useKibana } from '@kbn/kibana-react-plugin/public';
+import { entityCentricExperience } from '@kbn/observability-plugin/common';
 import { ObservabilityPageTemplateProps } from '@kbn/observability-shared-plugin/public';
 import type { KibanaPageTemplateProps } from '@kbn/shared-ux-page-kibana-template';
-import React, { useContext, useEffect } from 'react';
+import React, { useContext } from 'react';
+import { i18n } from '@kbn/i18n';
 import { useLocation } from 'react-router-dom';
 import { FeatureFeedbackButton } from '@kbn/observability-shared-plugin/public';
+import { useEntityManagerEnablementContext } from '../../../context/entity_manager_context/use_entity_manager_enablement_context';
+import { useDefaultAiAssistantStarterPromptsForAPM } from '../../../hooks/use_default_ai_assistant_starter_prompts_for_apm';
 import { KibanaEnvironmentContext } from '../../../context/kibana_environment_context/kibana_environment_context';
 import { getPathForFeedback } from '../../../utils/get_path_for_feedback';
 import { EnvironmentsContextProvider } from '../../../context/environments_context/environments_context';
@@ -22,10 +26,14 @@ import { ServiceGroupsButtonGroup } from '../../app/service_groups/service_group
 import { ApmEnvironmentFilter } from '../../shared/environment_filter';
 import { getNoDataConfig } from './no_data_config';
 import { useApmPluginContext } from '../../../context/apm_plugin/use_apm_plugin_context';
+import { EntityEnablement } from '../../shared/entity_enablement';
+import { CustomNoDataTemplate } from './custom_no_data_template';
+import { ServiceInventoryView } from '../../../context/entity_manager_context/entity_manager_context';
 
 // Paths that must skip the no data screen
 const bypassNoDataScreenPaths = ['/settings', '/diagnostics'];
 const APM_FEEDBACK_LINK = 'https://ela.st/services-feedback';
+const APM_NEW_EXPERIENCE_FEEDBACK_LINK = 'https://ela.st/entity-services-feedback';
 
 /*
  * This template contains:
@@ -44,6 +52,7 @@ export function ApmMainTemplate({
   environmentFilter = true,
   showServiceGroupSaveButton = false,
   showServiceGroupsNav = false,
+  showEnablementCallout = false,
   environmentFilterInTemplate = true,
   selectedNavButton,
   ...pageTemplateProps
@@ -54,6 +63,7 @@ export function ApmMainTemplate({
   environmentFilter?: boolean;
   showServiceGroupSaveButton?: boolean;
   showServiceGroupsNav?: boolean;
+  showEnablementCallout?: boolean;
   selectedNavButton?: 'serviceGroups' | 'allServices';
 } & KibanaPageTemplateProps &
   Pick<ObservabilityPageTemplateProps, 'pageSectionProps'>) {
@@ -64,9 +74,13 @@ export function ApmMainTemplate({
   const { http, docLinks, observabilityShared, application } = services;
   const { kibanaVersion, isCloudEnv, isServerlessEnv } = kibanaEnvironment;
   const basePath = http?.basePath.get();
-  const { config } = useApmPluginContext();
-
-  const aiAssistant = services.observabilityAIAssistant;
+  const { config, core } = useApmPluginContext();
+  const isEntityCentricExperienceSettingEnabled = core.uiSettings.get<boolean>(
+    entityCentricExperience,
+    false
+  );
+  const { isEntityCentricExperienceViewEnabled, serviceInventoryViewLocalStorageSetting } =
+    useEntityManagerEnablementContext();
 
   const ObservabilityPageTemplate = observabilityShared.navigation.PageTemplate;
 
@@ -77,8 +91,7 @@ export function ApmMainTemplate({
   // create static data view on initial load
   useFetcher(
     (callApmApi) => {
-      const canCreateDataView =
-        application?.capabilities.savedObjectsManagement.edit;
+      const canCreateDataView = application?.capabilities.savedObjectsManagement.edit;
 
       if (canCreateDataView) {
         return callApmApi('POST /internal/apm/data_view/static');
@@ -91,22 +104,24 @@ export function ApmMainTemplate({
     location.pathname.includes(path)
   );
 
-  const { data: fleetApmPoliciesData, status: fleetApmPoliciesStatus } =
-    useFetcher(
-      (callApmApi) => {
-        if (!data?.hasData && !shouldBypassNoDataScreen) {
-          return callApmApi('GET /internal/apm/fleet/has_apm_policies');
-        }
-      },
-      [shouldBypassNoDataScreen, data?.hasData]
-    );
+  const { data: fleetApmPoliciesData, status: fleetApmPoliciesStatus } = useFetcher(
+    (callApmApi) => {
+      if (!data?.hasData && !shouldBypassNoDataScreen) {
+        return callApmApi('GET /internal/apm/fleet/has_apm_policies');
+      }
+    },
+    [shouldBypassNoDataScreen, data?.hasData]
+  );
 
   const isLoading =
-    status === FETCH_STATUS.LOADING ||
-    fleetApmPoliciesStatus === FETCH_STATUS.LOADING;
+    status === FETCH_STATUS.LOADING || fleetApmPoliciesStatus === FETCH_STATUS.LOADING;
 
   const hasApmData = !!data?.hasData;
   const hasApmIntegrations = !!fleetApmPoliciesData?.hasApmPolicies;
+  const showCustomEmptyState =
+    !hasApmData &&
+    isEntityCentricExperienceSettingEnabled &&
+    serviceInventoryViewLocalStorageSetting === ServiceInventoryView.classic;
 
   const noDataConfig = getNoDataConfig({
     basePath,
@@ -118,62 +133,76 @@ export function ApmMainTemplate({
     isServerless: config?.serverlessOnboarding,
   });
 
-  useEffect(() => {
-    return aiAssistant?.service.setScreenContext({
-      screenDescription: [
-        hasApmData
-          ? 'The user has APM data.'
-          : 'The user does not have APM data.',
-        hasApmIntegrations
-          ? 'The user has the APM integration installed. '
-          : 'The user does not have the APM integration installed',
-        noDataConfig !== undefined
-          ? 'The user is looking at a screen that tells them they do not have any data.'
-          : '',
-      ].join('\n'),
-    });
-  }, [hasApmData, hasApmIntegrations, noDataConfig, aiAssistant]);
+  useDefaultAiAssistantStarterPromptsForAPM({
+    hasApmData,
+    hasApmIntegrations,
+    noDataConfig,
+  });
 
-  const rightSideItems = [
-    ...(showServiceGroupSaveButton ? [<ServiceGroupSaveButton />] : []),
-  ];
+  const rightSideItems = [...(showServiceGroupSaveButton ? [<ServiceGroupSaveButton />] : [])];
 
   const sanitizedPath = getPathForFeedback(window.location.pathname);
   const pageHeaderTitle = (
     <EuiFlexGroup justifyContent="spaceBetween" wrap={true}>
       {pageHeader?.pageTitle ?? pageTitle}
+      <EuiFlexItem grow={false} />
       <EuiFlexItem grow={false}>
         <EuiFlexGroup justifyContent="center">
           <EuiFlexItem grow={false}>
             <FeatureFeedbackButton
               data-test-subj="infraApmFeedbackLink"
-              formUrl={APM_FEEDBACK_LINK}
+              formUrl={
+                isEntityCentricExperienceViewEnabled && sanitizedPath.includes('service')
+                  ? APM_NEW_EXPERIENCE_FEEDBACK_LINK
+                  : APM_FEEDBACK_LINK
+              }
               kibanaVersion={kibanaVersion}
               isCloudEnv={isCloudEnv}
               isServerlessEnv={isServerlessEnv}
               sanitizedPath={sanitizedPath}
             />
           </EuiFlexItem>
-          <EuiFlexItem grow={false}>
-            {environmentFilter && <ApmEnvironmentFilter />}
-          </EuiFlexItem>
+          <EuiFlexItem grow={false}>{environmentFilter && <ApmEnvironmentFilter />}</EuiFlexItem>
         </EuiFlexGroup>
       </EuiFlexItem>
     </EuiFlexGroup>
   );
 
-  const pageTemplate = (
+  const pageTemplate = showCustomEmptyState ? (
+    <CustomNoDataTemplate isPageDataLoaded={isLoading === false} noDataConfig={noDataConfig} />
+  ) : (
     <ObservabilityPageTemplate
-      noDataConfig={shouldBypassNoDataScreen ? undefined : noDataConfig}
+      noDataConfig={
+        shouldBypassNoDataScreen ||
+        serviceInventoryViewLocalStorageSetting === ServiceInventoryView.entity
+          ? undefined
+          : noDataConfig
+      }
       isPageDataLoaded={isLoading === false}
       pageHeader={{
         rightSideItems,
         ...pageHeader,
         pageTitle: pageHeaderTitle,
-        children:
-          showServiceGroupsNav && selectedNavButton ? (
-            <ServiceGroupsButtonGroup selectedNavButton={selectedNavButton} />
-          ) : null,
+        children: (
+          <EuiFlexGroup direction="column">
+            {isEntityCentricExperienceSettingEnabled &&
+            showEnablementCallout &&
+            selectedNavButton === 'allServices' ? (
+              <EntityEnablement
+                label={i18n.translate('xpack.apm.eemEnablement.tryItButton.', {
+                  defaultMessage: 'Try our new experience!',
+                })}
+                tooltip={i18n.translate('xpack.apm.entityEnablement.content', {
+                  defaultMessage:
+                    'Our new experience combines both APM-instrumented services with services detected from logs in a single service inventory.',
+                })}
+              />
+            ) : null}
+            {showServiceGroupsNav && selectedNavButton && (
+              <ServiceGroupsButtonGroup selectedNavButton={selectedNavButton} />
+            )}
+          </EuiFlexGroup>
+        ),
       }}
       {...pageTemplateProps}
     >
@@ -181,9 +210,5 @@ export function ApmMainTemplate({
     </ObservabilityPageTemplate>
   );
 
-  return (
-    <EnvironmentsContextProvider>{pageTemplate}</EnvironmentsContextProvider>
-  );
-
-  return pageTemplate;
+  return <EnvironmentsContextProvider>{pageTemplate}</EnvironmentsContextProvider>;
 }

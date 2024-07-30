@@ -22,7 +22,7 @@ export const RESPONSE_ACTIONS_ERRORS = 'response-actions-error';
 describe(
   'Form',
   {
-    tags: ['@ess', '@serverless'],
+    tags: ['@ess', '@serverless', '@skipInServerlessMKI'],
     env: {
       ftrConfig: {
         kbnServerArgs: [
@@ -244,7 +244,7 @@ describe(
           );
         });
         cy.getByTestSubj(`response-actions-list-item-0`).within(() => {
-          cy.getByTestSubj('commandTypeField').should('have.text', 'isolate').and('be.disabled');
+          cy.getByTestSubj('commandTypeField').should('have.text', 'isolate, ').and('be.disabled'); // Note: the trailing `, ` comes from screen-reader-only text
           cy.getByTestSubj('input').should('have.value', 'Isolate host').and('be.disabled');
           cy.getByTestSubj('remove-response-action').should('be.disabled');
           // Try removing action

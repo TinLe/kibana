@@ -29,7 +29,9 @@
       "dataViews",
       "lens",
       "maps",
-      "uiActions"
+      "uiActions",
+      "logsDataAccess",
+      "entityManager"
     ],
     "optionalPlugins": [
       "actions",
@@ -51,14 +53,6 @@
       "cases",
       "observabilityAIAssistant"
     ],
-    "requiredBundles": [
-      "fleet",
-      "kibanaReact",
-      "kibanaUtils",
-      "ml",
-      "observability",
-      "maps",
-      "observabilityAIAssistant"
-    ]
+    "requiredBundles": ["fleet", "kibanaReact", "kibanaUtils", "ml", "observability", "maps"]
   }
 }
