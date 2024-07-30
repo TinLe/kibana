@@ -22,7 +22,7 @@ import {
   safeExpandLiteralStrings,
   languageForContentType,
 } from '../utilities';
-import { useResizeCheckerUtils } from './use_resize_checker_utils';
+import { useResizeCheckerUtils } from './hooks';
 
 export const MonacoEditorOutput: FunctionComponent = () => {
   const { settings: readOnlySettings } = useEditorReadContext();
@@ -87,17 +87,19 @@ export const MonacoEditorOutput: FunctionComponent = () => {
     >
       <EuiScreenReaderOnly>
         <label htmlFor={'ConAppOutputTextarea'}>
-          {i18n.translate('console.outputTextarea', {
+          {i18n.translate('console.monaco.outputTextarea', {
             defaultMessage: 'Dev Tools Console output',
           })}
         </label>
       </EuiScreenReaderOnly>
       <CodeEditor
+        dataTestSubj={'consoleMonacoOutput'}
         languageId={mode}
         value={value}
         fullWidth={true}
         editorDidMount={editorDidMountCallback}
         editorWillUnmount={editorWillUnmountCallback}
+        enableFindAction={true}
         options={{
           readOnly: true,
           fontSize: readOnlySettings.fontSize,

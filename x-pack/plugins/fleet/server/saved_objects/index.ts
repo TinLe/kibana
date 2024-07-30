@@ -23,6 +23,8 @@ import {
   MESSAGE_SIGNING_KEYS_SAVED_OBJECT_TYPE,
   INGEST_SAVED_OBJECT_INDEX,
   UNINSTALL_TOKENS_SAVED_OBJECT_TYPE,
+  FLEET_SETUP_LOCK_TYPE,
+  SPACE_SETTINGS_SAVED_OBJECT_TYPE,
 } from '../constants';
 
 import { migrateSyntheticsPackagePolicyToV8120 } from './migrations/synthetics/to_v8_12_0';
@@ -85,6 +87,14 @@ import {
   migratePackagePolicyEvictionsFromV81102,
 } from './migrations/security_solution/to_v8_11_0_2';
 import { settingsV1 } from './model_versions/v1';
+import {
+  packagePolicyV13AdvancedFields,
+  packagePolicyV10OnWriteScanFix,
+} from './model_versions/security_solution';
+import {
+  migratePackagePolicyIdsToV8150,
+  migratePackagePolicySetRequiresRootToV8150,
+} from './migrations/to_v8_15_0';
 
 /*
  * Saved object types and mappings
@@ -98,6 +108,38 @@ export const getSavedObjectTypes = (
   const { useSpaceAwareness } = options;
 
   return {
+    [FLEET_SETUP_LOCK_TYPE]: {
+      name: FLEET_SETUP_LOCK_TYPE,
+      indexPattern: INGEST_SAVED_OBJECT_INDEX,
+      hidden: false,
+      namespaceType: 'agnostic',
+      management: {
+        importableAndExportable: false,
+      },
+      mappings: {
+        properties: {
+          status: { type: 'keyword' },
+          uuid: { type: 'text' },
+          started_at: { type: 'date' },
+        },
+      },
+    },
+    [SPACE_SETTINGS_SAVED_OBJECT_TYPE]: {
+      name: SPACE_SETTINGS_SAVED_OBJECT_TYPE,
+      indexPattern: INGEST_SAVED_OBJECT_INDEX,
+      hidden: false,
+      namespaceType: 'single',
+      management: {
+        importableAndExportable: false,
+      },
+      mappings: {
+        dynamic: false,
+        properties: {
+          // allowed_namespace_prefixes: { enabled: false },
+          // managed_by: { type: 'keyword', index: false },
+        },
+      },
+    },
     // Deprecated
     [GLOBAL_SETTINGS_SAVED_OBJECT_TYPE]: {
       name: GLOBAL_SETTINGS_SAVED_OBJECT_TYPE,
@@ -164,6 +206,8 @@ export const getSavedObjectTypes = (
           overrides: { type: 'flattened', index: false },
           keep_monitoring_alive: { type: 'boolean' },
           advanced_settings: { type: 'flattened', index: false },
+          supports_agentless: { type: 'boolean' },
+          global_data_tags: { type: 'flattened', index: false },
         },
       },
       migrations: {
@@ -180,6 +224,26 @@ export const getSavedObjectTypes = (
               type: 'mappings_addition',
               addedMappings: {
                 advanced_settings: { type: 'flattened', index: false },
+              },
+            },
+          ],
+        },
+        '2': {
+          changes: [
+            {
+              type: 'mappings_addition',
+              addedMappings: {
+                supports_agentless: { type: 'boolean' },
+              },
+            },
+          ],
+        },
+        '3': {
+          changes: [
+            {
+              type: 'mappings_addition',
+              addedMappings: {
+                global_data_tags: { type: 'flattened', index: false },
               },
             },
           ],
@@ -416,11 +480,13 @@ export const getSavedObjectTypes = (
           enabled: { type: 'boolean' },
           is_managed: { type: 'boolean' },
           policy_id: { type: 'keyword' },
+          policy_ids: { type: 'keyword' },
           package: {
             properties: {
               name: { type: 'keyword' },
               title: { type: 'keyword' },
               version: { type: 'keyword' },
+              requires_root: { type: 'boolean' },
             },
           },
           elasticsearch: {
@@ -529,6 +595,50 @@ export const getSavedObjectTypes = (
             },
           ],
         },
+        '10': {
+          changes: [
+            {
+              type: 'data_backfill',
+              backfillFn: packagePolicyV10OnWriteScanFix,
+            },
+          ],
+        },
+        '11': {
+          changes: [
+            {
+              type: 'mappings_addition',
+              addedMappings: {
+                policy_ids: { type: 'keyword' },
+              },
+            },
+            {
+              type: 'data_backfill',
+              backfillFn: migratePackagePolicySetRequiresRootToV8150,
+            },
+          ],
+        },
+        '12': {
+          changes: [
+            {
+              type: 'mappings_addition',
+              addedMappings: {
+                package: { properties: { requires_root: { type: 'boolean' } } },
+              },
+            },
+            {
+              type: 'data_backfill',
+              backfillFn: migratePackagePolicyIdsToV8150,
+            },
+          ],
+        },
+        '13': {
+          changes: [
+            {
+              type: 'data_backfill',
+              backfillFn: packagePolicyV13AdvancedFields,
+            },
+          ],
+        },
       },
       migrations: {
         '7.10.0': migratePackagePolicyToV7100,
@@ -551,7 +661,7 @@ export const getSavedObjectTypes = (
       name: PACKAGES_SAVED_OBJECT_TYPE,
       indexPattern: INGEST_SAVED_OBJECT_INDEX,
       hidden: false,
-      namespaceType: useSpaceAwareness ? 'single' : 'agnostic',
+      namespaceType: 'agnostic',
       management: {
         importableAndExportable: false,
       },
@@ -586,6 +696,10 @@ export const getSavedObjectTypes = (
           package_assets: {
             dynamic: false,
             properties: {},
+          },
+          additional_spaces_installed_kibana: {
+            type: 'flattened',
+            index: false,
           },
           install_started_at: { type: 'date' },
           install_version: { type: 'keyword' },
@@ -629,6 +743,16 @@ export const getSavedObjectTypes = (
             },
           ],
         },
+        '3': {
+          changes: [
+            {
+              type: 'mappings_addition',
+              addedMappings: {
+                additional_spaces_installed_kibana: { type: 'flattened', index: false },
+              },
+            },
+          ],
+        },
       },
       migrations: {
         '7.14.0': migrateInstallationToV7140,
@@ -644,7 +768,7 @@ export const getSavedObjectTypes = (
       name: ASSETS_SAVED_OBJECT_TYPE,
       indexPattern: INGEST_SAVED_OBJECT_INDEX,
       hidden: false,
-      namespaceType: useSpaceAwareness ? 'single' : 'agnostic',
+      namespaceType: 'agnostic',
       management: {
         importableAndExportable: false,
       },
@@ -678,7 +802,7 @@ export const getSavedObjectTypes = (
       name: DOWNLOAD_SOURCE_SAVED_OBJECT_TYPE,
       indexPattern: INGEST_SAVED_OBJECT_INDEX,
       hidden: false,
-      namespaceType: useSpaceAwareness ? 'single' : 'agnostic',
+      namespaceType: 'agnostic',
       management: {
         importableAndExportable: false,
       },

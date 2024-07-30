@@ -18,12 +18,15 @@ import { useMountAppended } from '../../../../../common/utils/use_mount_appended
 import { TimelineId, TimelineTabs } from '../../../../../../common/types/timeline';
 import { useTimelineEvents } from '../../../../containers';
 import { useTimelineEventsDetails } from '../../../../containers/details';
-import { useSourcererDataView } from '../../../../../common/containers/sourcerer';
-import { mockSourcererScope } from '../../../../../common/containers/sourcerer/mocks';
+import { useSourcererDataView } from '../../../../../sourcerer/containers';
+import { mockSourcererScope } from '../../../../../sourcerer/containers/mocks';
 import type { Props as PinnedTabContentComponentProps } from '.';
 import { PinnedTabContentComponent } from '.';
 import { Direction } from '../../../../../../common/search_strategy';
 import { mockCasesContext } from '@kbn/cases-plugin/public/mocks/mock_cases_context';
+import { useIsExperimentalFeatureEnabled } from '../../../../../common/hooks/use_experimental_features';
+import type { ExperimentalFeatures } from '../../../../../../common';
+import { allowedExperimentalValues } from '../../../../../../common';
 
 jest.mock('../../../../containers', () => ({
   useTimelineEvents: jest.fn(),
@@ -38,7 +41,10 @@ jest.mock('../../body/events', () => ({
   Events: () => <></>,
 }));
 
-jest.mock('../../../../../common/containers/sourcerer');
+jest.mock('../../../../../sourcerer/containers');
+
+jest.mock('../../../../../common/hooks/use_experimental_features');
+const useIsExperimentalFeatureEnabledMock = useIsExperimentalFeatureEnabled as jest.Mock;
 
 const mockUseResizeObserver: jest.Mock = useResizeObserver as jest.Mock;
 jest.mock('use-resize-observer/polyfilled');
@@ -113,6 +119,15 @@ describe('PinnedTabContent', () => {
     (useTimelineEventsDetails as jest.Mock).mockReturnValue([false, {}]);
 
     (useSourcererDataView as jest.Mock).mockReturnValue(mockSourcererScope);
+
+    (useIsExperimentalFeatureEnabledMock as jest.Mock).mockImplementation(
+      (feature: keyof ExperimentalFeatures) => {
+        if (feature === 'unifiedComponentsInTimelineDisabled') {
+          return true;
+        }
+        return allowedExperimentalValues[feature];
+      }
+    );
 
     props = {
       columns: defaultHeaders,

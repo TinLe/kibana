@@ -38,7 +38,8 @@ import { EmbeddedConsoleResizeButton, getCurrentConsoleMaxSize } from './console
 const KBN_BODY_CONSOLE_CLASS = 'kbnBody--hasEmbeddableConsole';
 
 const landmarkHeading = i18n.translate('console.embeddableConsole.landmarkHeading', {
-  defaultMessage: 'Developer console',
+  defaultMessage:
+    "Developer console. Press Enter to start editing. When you're done, press Escape to stop editing.",
 });
 
 const ConsoleWrapper = dynamic(async () => ({
@@ -190,8 +191,14 @@ export const EmbeddableConsole = ({
               </div>
             </div>
           </EuiThemeProvider>
-          {showConsole ? (
-            <ConsoleWrapper {...{ core, usageCollection, onKeyDown, isMonacoEnabled }} />
+          {consoleState.consoleHasBeenOpened ? (
+            <ConsoleWrapper
+              isOpen={showConsole}
+              core={core}
+              usageCollection={usageCollection}
+              onKeyDown={onKeyDown}
+              isMonacoEnabled={isMonacoEnabled}
+            />
           ) : null}
           {showAlternateView ? (
             <div className="embeddableConsole__content" data-test-subj="consoleEmbeddedBody">

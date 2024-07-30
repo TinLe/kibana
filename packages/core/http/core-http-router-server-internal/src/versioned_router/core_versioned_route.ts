@@ -109,7 +109,10 @@ export class CoreVersionedRoute implements VersionedRoute {
 
   /** This method assumes that one or more versions handlers are registered  */
   private getDefaultVersion(): undefined | ApiVersion {
-    return resolvers[this.router.defaultHandlerResolutionStrategy]([...this.handlers.keys()]);
+    return resolvers[this.router.defaultHandlerResolutionStrategy](
+      [...this.handlers.keys()],
+      this.options.access
+    );
   }
 
   private versionsToString(): string {
@@ -188,13 +191,13 @@ export class CoreVersionedRoute implements VersionedRoute {
 
     const response = await handler.fn(ctx, req, res);
 
-    if (this.router.isDev && validation?.response?.[response.status]) {
+    if (this.router.isDev && validation?.response?.[response.status]?.body) {
       const { [response.status]: responseValidation, unsafe } = validation.response;
       try {
         validate(
           { body: response.payload },
           {
-            body: unwrapVersionedResponseBodyValidation(responseValidation.body),
+            body: unwrapVersionedResponseBodyValidation(responseValidation.body!),
             unsafe: { body: unsafe?.body },
           }
         );

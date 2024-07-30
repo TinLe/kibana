@@ -14,6 +14,14 @@ export {
   getIndexPatternFromESQLQuery,
   getLimitFromESQLQuery,
   removeDropCommandsFromESQLQuery,
+  hasTransformationalCommand,
+  getTimeFieldFromESQLQuery,
 } from './utils/query_parsing_helpers';
 export { appendToESQLQuery, appendWhereClauseToESQLQuery } from './utils/append_to_query';
-export { getESQLQueryColumns } from './utils/run_query';
+export {
+  getESQLQueryColumns,
+  getESQLQueryColumnsRaw,
+  getESQLResults,
+  getEarliestLatestParams,
+  hasEarliestLatestParams,
+} from './utils/run_query';
