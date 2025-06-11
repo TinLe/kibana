@@ -123,6 +123,8 @@ export class ElasticAssistantPlugin
             plugins.alerting.registerType(
               getAttackDiscoveryScheduleType({
                 logger: this.logger,
+                publicBaseUrl: core.http.basePath.publicBaseUrl,
+                telemetry: core.analytics,
               })
             );
           }
