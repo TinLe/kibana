@@ -2115,7 +2115,7 @@
     "vscode-languageserver-textdocument": "1.0.12",
     "watchpack": "1.7.5",
     "web-streams-polyfill": "4.2.0",
-    "webpack": "5.96.1",
+    "webpack": "5.104.1",
     "webpack-bundle-analyzer": "4.10.2",
     "webpack-cli": "5.1.4",
     "webpack-dev-server": "5.2.1",
